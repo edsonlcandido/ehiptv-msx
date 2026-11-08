@@ -12,6 +12,7 @@ app.MapGet("/", (HttpContext context) => Results.Json(new MsxContent
 }, MsxJson.Options));
 
 app.MapGet("/msx/menu.json", () => Results.Json(BuildMenu(), MsxJson.Options));
+app.MapGet("/msx/start.json", () => Results.Json(BuildMenu(), MsxJson.Options));
 
 app.Run();
 
