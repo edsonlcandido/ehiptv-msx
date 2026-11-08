@@ -1,7 +1,22 @@
 using ehiptv_msx.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Configurar CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .WithHeaders("Origin", "Content-Type", "Accept")
+              .WithMethods("GET", "OPTIONS");
+    });
+});
+
 var app = builder.Build();
+
+// Usar a política de CORS
+app.UseCors("AllowAll");
 
 // Raiz: aponta para o menu usando o host real da requisicao.
 app.MapGet("/", (HttpContext context) => Results.Json(BuildContent(context), MsxJson.Options));
