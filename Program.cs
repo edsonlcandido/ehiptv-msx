@@ -4,17 +4,19 @@ var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
 
 // Raiz: aponta para o menu usando o host real da requisicao.
-app.MapGet("/", (HttpContext context) => Results.Json(new MsxContent
+app.MapGet("/", (HttpContext context) => Results.Json(BuildContent(context), MsxJson.Options));
+
+app.MapGet("/msx/menu.json", () => Results.Json(BuildMenu(), MsxJson.Options));
+app.MapGet("/msx/start.json", (HttpContext context) => Results.Json(BuildContent(context), MsxJson.Options));
+
+app.Run();
+
+static MsxContent BuildContent(HttpContext context) => new()
 {
     Name = "My Example Content",
     Version = "1.0.0",
     Parameter = $"menu:{context.Request.Scheme}://{context.Request.Host}/msx/menu.json"
-}, MsxJson.Options));
-
-app.MapGet("/msx/menu.json", () => Results.Json(BuildMenu(), MsxJson.Options));
-app.MapGet("/msx/start.json", () => Results.Json(BuildMenu(), MsxJson.Options));
-
-app.Run();
+};
 
 static MsxMenu BuildMenu() => new()
 {
