@@ -16,6 +16,19 @@ public sealed class MsxContent
     public string Parameter { get; set; } = string.Empty;
 }
 
+/// <summary>Start do conteudo MSX (endpoint "/msx/start.json").</summary>
+public sealed class MsxStart
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = "1.0.0";
+
+    [JsonPropertyName("parameter")]
+    public string Parameter { get; set; } = string.Empty;
+}
+
 /// <summary>Documento de menu MSX (endpoint "/msx/menu.json").</summary>
 public sealed class MsxMenu
 {
