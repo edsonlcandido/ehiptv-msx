@@ -2,12 +2,16 @@ using ehiptv_msx.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configurar CORS
+// CORS: o MSX busca o start.json/menu.json com withCredentials=true.
+// Em requisicao com credencial o wildcard "*" e invalido (o navegador bloqueia
+// a resposta e o XHR falha com "Server responded with status: 0"), por isso a
+// origem tem de ser ecoada de volta, com Access-Control-Allow-Credentials.
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
+    options.AddPolicy("MsxClients", policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.SetIsOriginAllowed(_ => true)
+              .AllowCredentials()
               .WithHeaders("Origin", "Content-Type", "Accept")
               .WithMethods("GET", "OPTIONS");
     });
@@ -16,7 +20,7 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // Usar a política de CORS
-app.UseCors("AllowAll");
+app.UseCors("MsxClients");
 
 // Raiz: aponta para o menu usando o host real da requisicao.
 app.MapGet("/", (HttpContext context) => Results.Json(BuildContent(context), MsxJson.Options));
