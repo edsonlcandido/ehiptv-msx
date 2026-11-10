@@ -234,11 +234,14 @@ public sealed class MsxContentFactory
     private const int GridColumns = 16;
     private const int GridRows = 8;
 
-    /// <summary>Colunas da barra lateral de categorias (0..5).</summary>
-    private const int SidebarColumns = 6;
+    /// <summary>Colunas da barra lateral de categorias (0..3).</summary>
+    private const int SidebarColumns = 4;
 
-    /// <summary>Largura de cada categoria na barra lateral (3 colunas).</summary>
-    private const int SidebarItemColumns = 3;
+    /// <summary>
+    /// A barra lateral tem UMA coluna de categorias (1 item por linha da
+    /// grade). Com 8 linhas da grade, cabem 8 categorias por pagina.
+    /// </summary>
+    private const int SidebarItemColumns = 4;
 
     /// <summary>Largura de cada cartaz (em colunas da grade comprimida).</summary>
     private const int PosterColumns = 2;
@@ -253,7 +256,14 @@ public sealed class MsxContentFactory
     private const int PosterPerRow = (GridColumns - SidebarColumns) / PosterColumns;
     private const int PosterRowsPerPage = GridRows / PosterHeight;
     private const int PosterPerPage = PosterPerRow * PosterRowsPerPage;
-    private const int SidebarSlots = GridRows * 2;
+    private const int SidebarSlots = GridRows;
+
+    /// <summary>
+    /// Quantas categorias a janela da barra lateral avanca a cada pagina
+    /// rolada. A coluna mostra a categoria ativa fixa no topo + esta janela
+    /// + o botao "Mais categorias" no fim.
+    /// </summary>
+    private const int SidebarWindow = SidebarSlots - 2;
 
     /// <summary>
     /// Tela de Filmes no estilo XCIPTV: barra lateral com as categorias a
@@ -345,8 +355,10 @@ public sealed class MsxContentFactory
     }
 
     /// <summary>
-    /// Monta o navegador: barra lateral de categorias (repetida em cada
-    /// pagina) + grade de cartazes paginada na vertical.
+    /// Monta o navegador: barra lateral de categorias + grade de cartazes
+    /// paginada na vertical. A barra lateral e montada por pagina porque a
+    /// janela de categorias avanca junto com a rolagem (a grade do MSX tem
+    /// apenas 8 linhas, entao uma coluna so comporta 8 categorias por vez).
     /// </summary>
     private MsxContent BuildBrowser(
         List<XtreamCategory> categories,
@@ -357,12 +369,11 @@ public sealed class MsxContentFactory
         string categoriesUrl,
         List<MsxContentItem> posters)
     {
-        var sidebar = BuildSidebar(categories, activeCategoryId, categoryUrl, categoriesUrl);
         var pages = new List<MsxContentPage>();
 
         for (var offset = 0; offset < posters.Count; offset += PosterPerPage)
         {
-            var items = new List<MsxContentItem>(sidebar);
+            var items = BuildSidebar(categories, activeCategoryId, categoryUrl, categoriesUrl, pages.Count);
 
             for (var index = 0; index < PosterPerPage && offset + index < posters.Count; index++)
             {
@@ -386,7 +397,7 @@ public sealed class MsxContentFactory
             {
                 Items =
                 [
-                    .. sidebar,
+                    .. BuildSidebar(categories, activeCategoryId, categoryUrl, categoriesUrl, 0),
                     new MsxContentItem
                     {
                         Layout = $"{SidebarColumns},0,{GridColumns - SidebarColumns},{GridRows}",
@@ -409,40 +420,43 @@ public sealed class MsxContentFactory
     }
 
     /// <summary>
-    /// Barra lateral: duas sub-colunas com as categorias. A categoria ativa
-    /// fica com outra cor e a ultima vaga leva para a lista completa.
+    /// Barra lateral: UMA coluna de categorias. A categoria ativa fica fixa no
+    /// topo (destacada), as demais entram numa janela que avanca a cada pagina
+    /// rolada — assim todas as categorias do provedor ficam na mesma coluna —
+    /// e a ultima vaga leva para a lista completa.
     /// </summary>
     private List<MsxContentItem> BuildSidebar(
         List<XtreamCategory> categories,
         string activeCategoryId,
         Func<string, string> categoryUrl,
-        string categoriesUrl)
+        string categoriesUrl,
+        int pageIndex)
     {
         var items = new List<MsxContentItem>();
-        var visible = categories.Take(SidebarSlots - 1).ToList();
+        var active = categories.FirstOrDefault(c => c.CategoryId == activeCategoryId);
 
-        for (var index = 0; index < visible.Count; index++)
+        if (active is not null)
         {
-            var category = visible[index];
-            var subColumn = index / GridRows;
-            var row = index % GridRows;
-            var isActive = string.Equals(category.CategoryId, activeCategoryId, StringComparison.Ordinal);
-
-            items.Add(new MsxContentItem
-            {
-                Layout = $"{subColumn * SidebarItemColumns},{row},{SidebarItemColumns},1",
-                Type = "default",
-                Title = CleanCategoryName(category.CategoryName),
-                Color = isActive ? "msx-blue" : "msx-glass",
-                Action = $"content:{categoryUrl(category.CategoryId)}"
-            });
+            items.Add(SidebarItem(active, 0, true, categoryUrl));
         }
 
-        var moreSlot = visible.Count;
+        var others = categories.Where(c => c.CategoryId != activeCategoryId).ToList();
 
+        if (others.Count > 0)
+        {
+            var start = (pageIndex * SidebarWindow) % others.Count;
+
+            for (var index = 0; index < SidebarWindow; index++)
+            {
+                var category = others[(start + index) % others.Count];
+                items.Add(SidebarItem(category, index + 1, false, categoryUrl));
+            }
+        }
+
+        // Ultima vaga: lista completa de categorias.
         items.Add(new MsxContentItem
         {
-            Layout = $"{(moreSlot / GridRows) * SidebarItemColumns},{moreSlot % GridRows},{SidebarItemColumns},1",
+            Layout = $"0,{SidebarSlots - 1},{SidebarItemColumns},1",
             Type = "default",
             Title = "Mais categorias",
             Color = "msx-glass",
@@ -451,6 +465,17 @@ public sealed class MsxContentFactory
 
         return items;
     }
+
+    private static MsxContentItem SidebarItem(
+        XtreamCategory category, int row, bool isActive, Func<string, string> categoryUrl) =>
+        new()
+        {
+            Layout = $"0,{row},{SidebarItemColumns},1",
+            Type = "default",
+            Title = CleanCategoryName(category.CategoryName),
+            Color = isActive ? "msx-blue" : "msx-glass",
+            Action = $"content:{categoryUrl(category.CategoryId)}"
+        };
 
     /// <summary>Lista completa de categorias (destino do "Mais categorias").</summary>
     public Task<MsxContent> BuildVodCategoriesAsync(HttpContext context, XtreamCredential credential) =>

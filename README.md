@@ -22,27 +22,31 @@ As telas 3 e 4 usam a **grade comprimida do MSX** (`compress: true` → 16×8 em
 e um Content Root do tipo `list`, montado com `pages` posicionadas à mão:
 
 ```
-┌──────────────┬───────────────────────────────────┐
-│ 0,0  3 cols  │  cartaz 6,0  8,0  10,0  12,0 14,0│  ← 5 cartazes (2×4) + 1 linha de título
-│ 0,1  3 cols  │                                   │
-│ 0,2  ...     │  cartaz 6,4  8,4  10,4  12,0 14,0│  ← 5 cartazes
-│ 3,0  3 cols  │                                   │
-│ 3,1  ...     │                                   │
-└──────────────┴───────────────────────────────────┘
-   categorias          pôsteres (proporção vertical)
+┌──────────────┬────────────────────────────────────┐
+│ 0,0  4 cols  │  cartaz 4,0  6,0  8,0 10,0 12,0 14,0│ ← 6 cartazes (2×4)
+│ 0,1  4 cols  │                                    │
+│ 0,2  ...     │  cartaz 4,4  6,4  8,4 10,0 12,0 14,0│ ← 6 cartazes
+│ 0,7  4 cols  │                                    │
+└──────────────┴────────────────────────────────────┘
+   categorias            pôsteres (proporção vertical)
 ```
 
-- **Barra lateral (colunas 0–5)**: duas sub-colunas com as categorias; a categoria ativa
-  fica com outra cor (`msx-blue`) e a última vaga é **“Mais categorias”**, que abre a
-  lista completa (`/msx/content/vod-categories.json`).
-- **Grade (colunas 6–15)**: 5 cartazes por linha × 2 linhas = **10 por página**. Cada
-  cartaz ocupa 2 colunas × 4 linhas; com o item do tipo `separate`, 3 linhas são de imagem
-  (240×405 px em 1080p — proporção de poster vertical) e 1 linha é a faixa do título.
-- **Scroll vertical**: o tipo `list` empilha as páginas na vertical. Cada página seguinte
-  traz mais 10 cartazes da mesma categoria, então navegar para baixo carrega conteúdo novo.
+- **Barra lateral (colunas 0–3)**: **uma coluna** de categorias. Como a grade do
+  MSX tem só 8 linhas, cabem 8 categorias por página — então a coluna é montada
+  assim: a **categoria ativa fica fixa no topo** (destacada em `msx-blue`), as
+  demais entram numa **janela que avança a cada página rolada** (6 por página) e a
+  última vaga é **“Mais categorias”**, que abre a lista completa com todas as
+  categorias do provedor.
+- **Grade (colunas 4–15)**: 6 cartazes por linha × 2 linhas = **12 por página**.
+  Cada cartaz ocupa 2 colunas × 4 linhas; com o item do tipo `separate`, 3 linhas
+  são de imagem (240×405 px em 1080p — proporção de poster vertical) e 1 linha é a
+  faixa do título.
+- **Scroll vertical**: o tipo `list` empilha as páginas na vertical. Cada página
+  seguinte traz mais 12 cartazes da mesma categoria (e a janela da barra lateral
+  anda junto), então navegar para baixo carrega conteúdo novo.
 - A tela abre focando o primeiro cartaz (e não a barra lateral).
 
-O limite de itens por tela é `MaxPosterItems` (padrão 672 → 68 páginas de 10 cartazes).
+O limite de itens por tela é `MaxPosterItems` (padrão 672 → 56 páginas de 12 cartazes).
 
 ## A credencial vai no primeiro trecho da URL
 
@@ -229,8 +233,7 @@ provedor entram por variável de ambiente (ver abaixo) ou pelo arquivo de secret
   host do painel (`BaseUrl`).
 - `PlaybackBaseUrl` — base fixa das URLs de playback; tem prioridade sobre o
   `server_info`. Vazio = usar o `server_info`.
-- `MaxPosterItems` — teto de cartazes por tela de Filmes/Séries (padrão 672 → 68 páginas
-  de 10 cartazes; o MSX aceita no máximo 1024 páginas no tipo `list` e 256 itens por página).
+- `MaxPosterItems` — teto de cartazes por tela de Filmes/Séries (padrão 672 → 56 páginas de 12 cartazes; o MSX aceita no máximo 1024 páginas no tipo `list` e 256 itens por página).
 
 ## Endereços do provedor (fora do repositório)
 
