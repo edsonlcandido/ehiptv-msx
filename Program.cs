@@ -46,6 +46,9 @@ app.UseCors("MsxClients");
 // Rotas
 // ---------------------------------------------------------------------------
 
+// A credencial fica no PRIMEIRO TRECHO do host:
+//   http://<usuario>-<senha>.dominio/msx/start.json
+// Nao existe mais sub-caminho com usuario/senha.
 app.MapGet("/", () => Results.Redirect("/msx/start.json"));
 
 app.MapGet("/health", () => Results.Json(new { ok = true }));
@@ -98,8 +101,13 @@ app.MapGet("/player_api.php", async (HttpContext context, CredentialResolver res
     return Results.Content(json, "application/json; charset=utf-8");
 });
 
+// ---------------------------------------------------------------------------
+// Telas do MSX
+// ---------------------------------------------------------------------------
+
 // Start Object: MSX sempre busca em {SERVER}/msx/start.json.
-// A credencial vem da URL (path, query ou host usuario-senha.localhost).
+// O "parameter" aponta para a tela inicial (content:), e nao para o menu (menu:),
+// por isso o app NAO mostra a barra lateral esquerda.
 app.MapGet("/msx/start.json", (HttpContext context, CredentialResolver resolver, MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
@@ -117,85 +125,168 @@ app.MapGet("/msx/start.json", (HttpContext context, CredentialResolver resolver,
     return Results.Json(factory.BuildStart(context, credential), MsxJson.Options);
 });
 
-// Ajuda: como montar a URL com usuario e senha.
-app.MapGet("/msx/ajuda.json", (HttpContext context) =>
-    Results.Json(BuildHelpContent(context), MsxJson.Options));
-
-var scoped = app.MapGroup("/msx/{user}/{pass}");
-
-scoped.MapGet("/menu.json", async (HttpContext context, string user, string pass,
-    CredentialResolver resolver, MsxContentFactory factory) =>
+// Menu Root (barra lateral) -kept para uso opcional/aviso.
+app.MapGet("/msx/menu.json", async (HttpContext context, CredentialResolver resolver,
+    MsxContentFactory factory) =>
 {
-    var credential = resolver.Resolve(context, user, pass);
+    var credential = resolver.Resolve(context);
     var menu = await factory.BuildMenuAsync(context, credential);
     return Results.Json(menu, MsxJson.Options);
 });
 
-scoped.MapGet("/content/home.json", (HttpContext context, string user, string pass,
-    CredentialResolver resolver, MsxContentFactory factory) =>
+// Ajuda: como montar a URL com usuario e senha.
+app.MapGet("/msx/ajuda.json", (HttpContext context) =>
+    Results.Json(BuildHelpContent(context), MsxJson.Options));
+
+// Tela 1 - Inicio (os 3 itens: TV, Filmes, Series).
+app.MapGet("/msx/content/home.json", (HttpContext context, CredentialResolver resolver,
+    MsxContentFactory factory) =>
 {
-    var credential = resolver.Resolve(context, user, pass);
+    var credential = resolver.Resolve(context);
     return Results.Json(factory.BuildHome(context, credential), MsxJson.Options);
 });
 
 // Canais: hub de categorias.
-scoped.MapGet("/content/live.json", async (HttpContext context, string user, string pass,
-    CredentialResolver resolver, MsxContentFactory factory) =>
+app.MapGet("/msx/content/live.json", async (HttpContext context, CredentialResolver resolver,
+    MsxContentFactory factory) =>
 {
-    var credential = resolver.Resolve(context, user, pass);
+    var credential = resolver.Resolve(context);
     var content = await factory.BuildLiveHubAsync(context, credential);
     return Results.Json(content, MsxJson.Options);
 });
 
 // Canais: lista de canais da categoria.
-scoped.MapGet("/content/live/{categoryId}.json", async (HttpContext context, string user, string pass,
-    string categoryId, CredentialResolver resolver, MsxContentFactory factory) =>
+app.MapGet("/msx/content/live/{categoryId}.json", async (HttpContext context, string categoryId,
+    CredentialResolver resolver, MsxContentFactory factory) =>
 {
-    var credential = resolver.Resolve(context, user, pass);
+    var credential = resolver.Resolve(context);
     var content = await factory.BuildLiveCategoryAsync(context, credential, categoryId);
     return Results.Json(content, MsxJson.Options);
 });
 
 // Filmes: hub (categoria padrao) e categoria especifica.
-scoped.MapGet("/content/vod.json", async (HttpContext context, string user, string pass,
-    CredentialResolver resolver, MsxContentFactory factory) =>
+app.MapGet("/msx/content/vod.json", async (HttpContext context, CredentialResolver resolver,
+    MsxContentFactory factory) =>
 {
-    var credential = resolver.Resolve(context, user, pass);
+    var credential = resolver.Resolve(context);
     var content = await factory.BuildVodHubAsync(context, credential);
     return Results.Json(content, MsxJson.Options);
 });
 
-scoped.MapGet("/content/vod/{categoryId}.json", async (HttpContext context, string user, string pass,
-    string categoryId, CredentialResolver resolver, MsxContentFactory factory) =>
+app.MapGet("/msx/content/vod/{categoryId}.json", async (HttpContext context, string categoryId,
+    CredentialResolver resolver, MsxContentFactory factory) =>
 {
-    var credential = resolver.Resolve(context, user, pass);
+    var credential = resolver.Resolve(context);
     var content = await factory.BuildVodCategoryAsync(context, credential, categoryId);
     return Results.Json(content, MsxJson.Options);
 });
 
 // Series: hub, categoria e episodios.
-scoped.MapGet("/content/series.json", async (HttpContext context, string user, string pass,
-    CredentialResolver resolver, MsxContentFactory factory) =>
+app.MapGet("/msx/content/series.json", async (HttpContext context, CredentialResolver resolver,
+    MsxContentFactory factory) =>
 {
-    var credential = resolver.Resolve(context, user, pass);
+    var credential = resolver.Resolve(context);
     var content = await factory.BuildSeriesHubAsync(context, credential);
     return Results.Json(content, MsxJson.Options);
 });
 
-scoped.MapGet("/content/series/{categoryId}.json", async (HttpContext context, string user, string pass,
-    string categoryId, CredentialResolver resolver, MsxContentFactory factory) =>
+app.MapGet("/msx/content/series/{categoryId}.json", async (HttpContext context, string categoryId,
+    CredentialResolver resolver, MsxContentFactory factory) =>
 {
-    var credential = resolver.Resolve(context, user, pass);
+    var credential = resolver.Resolve(context);
     var content = await factory.BuildSeriesCategoryAsync(context, credential, categoryId);
     return Results.Json(content, MsxJson.Options);
 });
 
-scoped.MapGet("/content/series-info/{seriesId}.json", async (HttpContext context, string user, string pass,
-    string seriesId, CredentialResolver resolver, MsxContentFactory factory) =>
+app.MapGet("/msx/content/series-info/{seriesId}.json", async (HttpContext context, string seriesId,
+    CredentialResolver resolver, MsxContentFactory factory) =>
 {
-    var credential = resolver.Resolve(context, user, pass);
+    var credential = resolver.Resolve(context);
     var content = await factory.BuildSeriesInfoAsync(context, credential, seriesId);
     return Results.Json(content, MsxJson.Options);
+});
+
+// ---------------------------------------------------------------------------
+// Diagnostico: por que o provedor nao responde a partir deste servidor?
+// ---------------------------------------------------------------------------
+
+app.MapGet("/msx/diagnostico.json", async (HttpContext context, CredentialResolver resolver,
+    XtreamClient xtream) =>
+{
+    var credential = resolver.Resolve(context);
+    var probes = await xtream.ProbeAsync(credential);
+
+    var dns = new Dictionary<string, object?>();
+
+    foreach (var host in xtream.CandidateBases()
+        .Select(b => new Uri(b.Contains("://") ? b : "http://" + b).Host)
+        .Distinct())
+    {
+        try
+        {
+            var addresses = await System.Net.Dns.GetHostAddressesAsync(host);
+            dns[host] = addresses.Select(a => a.ToString()).ToArray();
+        }
+        catch (Exception ex)
+        {
+            dns[host] = $"DNS falhou: {ex.Message}";
+        }
+    }
+
+    // O app sai para a internet? Se nem um site publico responde, o problema
+    // e a saida do servidor (nao o provedor).
+    var outbound = new List<object>();
+
+    foreach (var url in new[] { "http://example.com", "https://www.google.com", "http://<provedor>/" })
+    {
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+
+            using var response = await http.GetAsync(url);
+            var body = await response.Content.ReadAsStringAsync();
+
+            outbound.Add(new
+            {
+                url,
+                status = (int)response.StatusCode,
+                elapsedMs = started.ElapsedMilliseconds,
+                sample = body.Length > 120 ? body[..120].Replace("\n", " ") : body
+            });
+        }
+        catch (Exception ex)
+        {
+            outbound.Add(new
+            {
+                url,
+                error = $"{ex.GetType().Name}: {ex.Message}",
+                elapsedMs = started.ElapsedMilliseconds
+            });
+        }
+    }
+
+    return Results.Json(new
+    {
+        request = new
+        {
+            host = context.Request.Host.Value,
+            forwardedHost = context.Request.Headers["X-Forwarded-Host"].FirstOrDefault(),
+            forwardedProto = context.Request.Headers["X-Forwarded-Proto"].FirstOrDefault(),
+            scheme = context.Request.Scheme,
+            publicHost = CredentialResolver.PublicHost(context),
+            publicScheme = CredentialResolver.PublicScheme(context),
+            credentialSource = CredentialResolver.CredentialPrefix(CredentialResolver.PublicHost(context)) is not null
+                ? "host"
+                : (context.Request.Query["u"].FirstOrDefault() is not null ? "query" : "secrets"),
+            hasCredentials = credential.HasCredentials
+        },
+        candidates = xtream.CandidateBases(),
+        dns,
+        outbound,
+        probes
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -259,7 +350,7 @@ app.Run();
 // ---------------------------------------------------------------------------
 
 static string HelpUrl(HttpContext context) =>
-    $"{context.Request.Scheme}://{context.Request.Host}/msx/ajuda.json";
+    $"{CredentialResolver.PublicScheme(context)}://{CredentialResolver.PublicHost(context)}/msx/ajuda.json";
 
 static MsxContent BuildHelpContent(HttpContext context) => new()
 {
@@ -269,13 +360,13 @@ static MsxContent BuildHelpContent(HttpContext context) => new()
     [
         new MsxContentItem
         {
-            Title = "URL com usuario e senha no host (localhost)",
-            Text = $"http://{context.Request.Host.Host.Split('.', 2)[0]}-<senha>.localhost:{context.Request.Host.Port}/msx/start.json"
+            Title = "Usuario e senha no primeiro trecho do host",
+            Text = $"http://<usuario>-<senha>.{CredentialResolver.PublicHost(context).Split('.', 2).Skip(1).FirstOrDefault() ?? "localhost"}/msx/start.json"
         },
         new MsxContentItem
         {
-            Title = "URL com usuario e senha na query",
-            Text = $"http://{context.Request.Host}/msx/start.json?u=<usuario>&p=<senha>"
+            Title = "Usuario e senha na query",
+            Text = $"http://{CredentialResolver.PublicHost(context)}/msx/start.json?u=<usuario>&p=<senha>"
         },
         new MsxContentItem
         {

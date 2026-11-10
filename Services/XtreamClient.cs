@@ -34,6 +34,9 @@ public sealed class XtreamClient
     private readonly ILogger<XtreamClient> _logger;
     private readonly XtreamOptions _options;
 
+    /// <summary>Ultima base que respondeu OK (evita repetir a que falha).</summary>
+    private string? _workingBase;
+
     public XtreamClient(
         IHttpClientFactory httpFactory,
         IMemoryCache cache,
@@ -122,9 +125,13 @@ public sealed class XtreamClient
     }
 
     /// <summary>URL completa do player_api.php (usada no diagnostico e no proxy).</summary>
-    public static string BuildUrl(XtreamCredential credential, string? action, string? extra = null)
+    public static string BuildUrl(XtreamCredential credential, string? action, string? extra = null) =>
+        BuildUrl(credential.BaseUrl, credential, action, extra);
+
+    /// <summary>URL completa do player_api.php em uma base especifica.</summary>
+    public static string BuildUrl(string baseUrl, XtreamCredential credential, string? action, string? extra = null)
     {
-        var url = $"{credential.BaseUrl.TrimEnd('/')}/player_api.php" +
+        var url = $"{baseUrl.TrimEnd('/')}/player_api.php" +
                   $"?username={Uri.EscapeDataString(credential.Username)}" +
                   $"&password={Uri.EscapeDataString(credential.Password)}";
 
@@ -135,6 +142,112 @@ public sealed class XtreamClient
 
         return extra is null ? url : $"{url}&{extra}";
     }
+
+    /// <summary>
+    /// Bases candidatas, na ordem de tentativa: a que funcionou por ultimo,
+    /// depois a principal e as alternativas configuradas.
+    /// </summary>
+    public List<string> CandidateBases()
+    {
+        var list = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(_workingBase))
+        {
+            list.Add(_workingBase);
+        }
+
+        foreach (var candidate in new[] { _options.BaseUrl }.Concat(_options.FallbackUrls))
+        {
+            if (string.IsNullOrWhiteSpace(candidate))
+            {
+                continue;
+            }
+
+            var trimmed = candidate.TrimEnd('/');
+
+            if (!list.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
+            {
+                list.Add(trimmed);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(_options.ApiProxyUrl))
+        {
+            var relay = _options.ApiProxyUrl.TrimEnd('/');
+
+            if (!list.Contains(relay, StringComparer.OrdinalIgnoreCase))
+            {
+                list.Add(relay);
+            }
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// Sonda cada base candidata e devolve o que cada uma respondeu. Usado pelo
+    /// endpoint de diagnostico para descobrir por que o provedor falha.
+    /// </summary>
+    public async Task<List<XtreamProbeResult>> ProbeAsync(XtreamCredential credential)
+    {
+        var results = new List<XtreamProbeResult>();
+
+        foreach (var baseUrl in CandidateBases())
+        {
+            var url = BuildUrl(baseUrl, credential, "get_live_categories");
+            var started = System.Diagnostics.Stopwatch.StartNew();
+
+            try
+            {
+                var client = _httpFactory.CreateClient("xtream");
+                using var response = await client.GetAsync(url);
+
+                var body = response.IsSuccessStatusCode
+                    ? await response.Content.ReadAsStringAsync()
+                    : await SafeReadAsync(response);
+
+                results.Add(new XtreamProbeResult
+                {
+                    Base = baseUrl,
+                    Url = Redact(url),
+                    Status = (int)response.StatusCode,
+                    ElapsedMs = started.ElapsedMilliseconds,
+                    Sample = Sample(body)
+                });
+            }
+            catch (Exception ex)
+            {
+                results.Add(new XtreamProbeResult
+                {
+                    Base = baseUrl,
+                    Url = Redact(url),
+                    Error = $"{ex.GetType().Name}: {ex.Message}",
+                    ElapsedMs = started.ElapsedMilliseconds
+                });
+            }
+        }
+
+        return results;
+    }
+
+    private static async Task<string> SafeReadAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            return await response.Content.ReadAsStringAsync();
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    /// <summary>Troca a senha por "***" (a URL vai para o log/diagnostico).</summary>
+    public static string Redact(string url) =>
+        System.Text.RegularExpressions.Regex.Replace(url, "password=[^&]*", "password=***");
+
+    private static string? Sample(string? body) =>
+        string.IsNullOrWhiteSpace(body) ? null : body![..Math.Min(body.Length, 160)].Replace("\n", " ").Replace("\r", " ");
 
     /// <summary>
     /// JSON bruto do player_api.php para uma acao (cache de 30 min para o
@@ -188,20 +301,50 @@ public sealed class XtreamClient
         string? extra,
         TimeSpan ttl)
     {
-        var cacheKey = $"xtream:{credential.Username}:{action}:{extra}";
+        // Tenta cada base candidata: alguns provedores bloqueiam o IP do
+        // servidor (404) e so respondem por outro dominio.
+        foreach (var baseUrl in CandidateBases())
+        {
+            var raw = await FetchAsync(baseUrl, credential, action, extra, ttl);
+
+            if (raw is not null)
+            {
+                _workingBase = baseUrl;
+                return raw;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<string?> FetchAsync(
+        string baseUrl,
+        XtreamCredential credential,
+        string? action,
+        string? extra,
+        TimeSpan ttl)
+    {
+        var url = BuildUrl(baseUrl, credential, action, extra);
+        var cacheKey = $"xtream:{baseUrl}:{credential.Username}:{action}:{extra}";
 
         if (_cache.TryGetValue(cacheKey, out var cached) && cached is string raw)
         {
             return raw;
         }
 
-        var url = BuildUrl(credential, action, extra);
-
         try
         {
             var client = _httpFactory.CreateClient("xtream");
             using var response = await client.GetAsync(url);
-            response.EnsureSuccessStatusCode();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "Xtream Codes respondeu {Status} em {Base} (action={Action}).",
+                    (int)response.StatusCode, baseUrl, action ?? "(default)");
+
+                return null;
+            }
 
             var body = await response.Content.ReadAsStringAsync();
             _cache.Set(cacheKey, body, ttl);
@@ -209,7 +352,10 @@ public sealed class XtreamClient
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Falha ao consultar o Xtream Codes (action={Action}).", action ?? "(default)");
+            _logger.LogWarning(
+                ex, "Falha ao consultar o Xtream Codes em {Base} (action={Action}).",
+                baseUrl, action ?? "(default)");
+
             return null;
         }
     }

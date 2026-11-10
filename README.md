@@ -16,9 +16,9 @@ as telas de conteúdo — tudo gerado a partir do provedor, em tempo real.
 O menu lateral (coluna da esquerda) traz `Início`, `Canais`, `Filmes`, `Séries` e todas as
 categorias de cada seção.
 
-## A credencial vai no início da URL
+## A credencial vai no primeiro trecho da URL
 
-O usuário e a senha **sempre ficam no começo da URL** (prefixo do host) e valem para
+O usuário e a senha **sempre ficam no primeiro trecho do host** (prefixo) e valem para
 todas as chamadas que o MSX faz:
 
 ```
@@ -26,39 +26,75 @@ http://<usuario>-<senha>.localhost:8080/msx/start.json
 http://<usuario>-<senha>.seu-dominio.com/msx/start.json
 ```
 
+Não existe mais sub-caminho com usuário/senha: todas as URLs geradas são
+`{host}/msx/menu.json` e `{host}/msx/content/…`.
+
 O MSX sempre busca `{SERVER}/msx/start.json`; ao responder, o app devolve um Start Object
-cujo `parameter` aponta para o menu **com o mesmo prefixo de host**, e todas as URLs geradas
-(menu, telas, links de conteúdo) mantêm esse prefixo. Nenhum usuário/senha é digitado na
+cujo `parameter` aponta para a **tela inicial** (com os 3 itens), e todas as URLs geradas
+(menu, telas, links de conteúdo) mantêm o mesmo host. Nenhum usuário/senha é digitado na
 TV: basta configurar o domínio no app MSX.
 
 Ordem de resolução da credencial (`Services/CredentialResolver.cs`):
 
-1. **path** — `/msx/{usuario}/{senha}/…` (usado por todas as URLs geradas)
-2. **query** — `?u=usuario&p=senha`
-3. **host** — `usuario-senha.host` (o prefixo do início da URL)
-4. **secret local** — arquivo de secrets (fallback de dev/servidor)
+1. **host** — `<usuario>-<senha>` no primeiro trecho (host ou `X-Forwarded-Host`)
+2. **query** — `?u=usuario&p=senha` (só para teste)
+3. **secret local** — arquivo de secrets (fallback de dev/servidor)
+
+Atrás de um proxy o `Host` chega interno (`localhost:3000`); o app usa o `X-Forwarded-Host`
+e o `X-Forwarded-Proto` para montar as URLs públicas.
 
 ## Endpoints
 
 | Rota | Descrição |
 |------|-----------|
-| `GET /msx/start.json` | Start Object (parâmetro já com a credencial) |
-| `GET /msx/{u}/{p}/menu.json` | Menu Root (menu lateral) |
-| `GET /msx/{u}/{p}/content/home.json` | Tela 1 — Início |
-| `GET /msx/{u}/{p}/content/live.json` | Tela 2 — Canais (categorias) |
-| `GET /msx/{u}/{p}/content/live/{categoryId}.json` | Canais da categoria |
-| `GET /msx/{u}/{p}/content/vod.json` | Tela 3 — Filmes |
-| `GET /msx/{u}/{p}/content/vod/{categoryId}.json` | Filmes da categoria |
-| `GET /msx/{u}/{p}/content/series.json` | Tela 4 — Séries |
-| `GET /msx/{u}/{p}/content/series/{categoryId}.json` | Séries da categoria |
-| `GET /msx/{u}/{p}/content/series-info/{seriesId}.json` | Episódios da série |
+| `GET /msx/start.json` | Start Object (aponta para a tela inicial) |
+| `GET /msx/menu.json` | Menu Root (barra lateral, opcional) |
+| `GET /msx/content/home.json` | Tela 1 — Início (os 3 itens) |
+| `GET /msx/content/live.json` | Tela 2 — Canais (categorias) |
+| `GET /msx/content/live/{categoryId}.json` | Canais da categoria |
+| `GET /msx/content/vod.json` | Tela 3 — Filmes |
+| `GET /msx/content/vod/{categoryId}.json` | Filmes da categoria |
+| `GET /msx/content/series.json` | Tela 4 — Séries |
+| `GET /msx/content/series/{categoryId}.json` | Séries da categoria |
+| `GET /msx/content/series-info/{seriesId}.json` | Episódios da série |
 | `GET /player_api.php` | API Xtream Codes padrão (veja abaixo) |
+| `GET /msx/diagnostico.json` | Diagnóstico do provedor (ver abaixo) |
 | `GET /msx/preview` | Preview no `msx.benzac.de` com o JSON em base64 |
 | `GET /msx/preview.json` | Menu compacto (JSON autocontido) |
 | `GET /health` | Health check |
 
 Todas as respostas JSON devolvem `Access-Control-Allow-Origin` echoing a origem +
 `Access-Control-Allow-Credentials` (o MSX usa `withCredentials=true`).
+
+### Página inicial sem barra lateral
+
+O `start.json` responde com `parameter: "content:{…}/msx/content/home.json"` — e não
+`menu:…`. É essa diferença que faz o MSX **não mostrar a barra lateral esquerda**: a
+tela inicial fica em tela cheia com os 3 cards (TV / Filmes / Séries). O menu completo
+(com todas as categorias) continua disponível em `/msx/menu.json`.
+
+## Provedor bloqueado (404): cadeia de candidatos e relay
+
+Alguns provedores bloqueiam o IP do servidor (a resposta é **404** do nginx/Cloudflare,
+não 401). Para isso o app:
+
+1. Tenta as bases em ordem: `BaseUrl`, depois `FallbackUrls`, e por último o
+   `ApiProxyUrl` se estiver configurado. A base que respondeu é guardada em memória e
+   tentada primeiro nas próximas chamadas.
+2. Deixa o diagnóstico pronto em `GET /msx/diagnostico.json`: mostra o que o app enxerga
+   do request (Host, `X-Forwarded-Host`, `X-Forwarded-Proto`), o DNS de cada host, um
+   teste de saída para a internet (`example.com`, `google.com`) e a resposta de cada base
+   candidata. Se nem `example.com` responder, o problema é a saída do servidor; se
+   responder e só o provedor falhar, é bloqueio do provedor.
+
+Se **nenhum** domínio do provedor for alcançável do servidor, configure um relay
+(qualquer proxy que forwards `GET /player_api.php?username=…&password=…&action=…` para o
+provedor e devolva o JSON):
+
+```
+Xtream__ApiProxyUrl=https://seu-relay.exemplo.com
+```
+
 
 ## O app também é um servidor Xtream Codes padrão
 
@@ -121,6 +157,8 @@ porque o app MSX roda em contexto local.
 ```json
 "Xtream": {
   "BaseUrl": "http://<provedor>",
+  "FallbackUrls": [ "http://<provedor-alternativo>" ],
+  "ApiProxyUrl": "",
   "PublicBaseUrl": "",
   "UseServerInfo": true,
   "PlaybackBaseUrl": "",
@@ -132,11 +170,14 @@ porque o app MSX roda em contexto local.
 }
 ```
 
-- `BaseUrl` — servidor Xtream Codes (usado para as chamadas ao `player_api.php`).
+- `BaseUrl` — servidor Xtream Codes principal (usado para as chamadas ao `player_api.php`).
+- `FallbackUrls` — outros domínios do mesmo provedor, tentados quando o principal
+  responde 404 (o provedor bloqueia o IP do servidor). Ex.: `["http://<provedor-alternativo>"]`.
+- `ApiProxyUrl` — relay opcional (ver acima).
 - `PublicBaseUrl` — URL pública do app (ex.: `https://ehiptv.seu-dominio.com`). Deixe
   vazio em dev (usa scheme+host da requisição). Em produção, atrás de proxy, o `Host`
-  chega como `localhost:3000`; o app usa o `PublicBaseUrl` e **reaplica o prefixo de
-  credencial** do host original na frente do host público.
+  chega como `localhost:3000`; o app usa o `X-Forwarded-Host` e **reaplica o prefixo de
+  credencial** na frente do host público.
 - `UseServerInfo` — deriva a base das URLs de playback do `server_info` devolvido pelo
   `player_api.php` (padrão IPTV Xtream Codes). Desligue (`false`) para usar sempre o
   host do painel (`BaseUrl`).

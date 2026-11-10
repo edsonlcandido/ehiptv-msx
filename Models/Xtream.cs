@@ -271,6 +271,32 @@ public sealed class XtreamServerInfo
     public bool Xui { get; set; }
 }
 
+/// <summary>
+/// Resultado de uma sondagem a um base do Xtream Codes (usado pelo
+/// endpoint de diagnostico).
+/// </summary>
+public sealed class XtreamProbeResult
+{
+    [JsonPropertyName("base")]
+    public string Base { get; set; } = string.Empty;
+
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = string.Empty;
+
+    [JsonPropertyName("status")]
+    public int? Status { get; set; }
+
+    [JsonPropertyName("error")]
+    public string? Error { get; set; }
+
+    [JsonPropertyName("elapsedMs")]
+    public long ElapsedMs { get; set; }
+
+    /// <summary>Primeiros bytes da resposta (sem a senha).</summary>
+    [JsonPropertyName("sample")]
+    public string? Sample { get; set; }
+}
+
 public sealed class XtreamEpisodeInfo
 {
     [JsonPropertyName("title")]

@@ -9,6 +9,21 @@ public sealed class XtreamOptions
     public string BaseUrl { get; set; } = "http://<provedor>";
 
     /// <summary>
+    /// Bases alternativas do Xtream Codes, tentadas em ordem quando a principal
+    /// falha. Alguns provedores bloqueiam o IP do servidor (a resposta é 404):
+    /// com um segundo dominio do mesmo provedor o app volta a funcionar.
+    /// </summary>
+    public string[] FallbackUrls { get; set; } = [];
+
+    /// <summary>
+    /// Relay (proxy) opcional para o player_api.php. Quando preenchido, o app
+    /// chama "{ApiProxyUrl}/player_api.php?username=..&password=..&action=.."
+    /// e espera o JSON do Xtream Codes de volta. Use quando nenhum dominio do
+    /// provedor é alcançavel a partir do servidor.
+    /// </summary>
+    public string? ApiProxyUrl { get; set; }
+
+    /// <summary>
     /// URL publica do proprio app (ex.: https://ehiptv.ehtudo.app). Necesario
     /// em producao porque o proxy pode nao repassar o Host original.
     /// Vazio = usa scheme+host da requisicao (dev local).
@@ -59,14 +74,6 @@ public sealed record XtreamCredential(string BaseUrl, string Username, string Pa
     public bool HasCredentials =>
         !string.IsNullOrWhiteSpace(Username) && !string.IsNullOrWhiteSpace(Password);
 
-    /// <summary>Segmento de path URL-encoded: "usuario/senha".</summary>
-    public string PathSegment =>
-        $"{Uri.EscapeDataString(Username)}/{Uri.EscapeDataString(Password)}";
-
-    /// <summary>Versao com a base, para montar as URLs de playback.</summary>
-    public string Base(string kind, string id, string? extension = null) =>
-        BuildFrom(BaseUrl, kind, id, extension);
-
     /// <summary>
     /// URL de playback no padrao IPTV Xtream Codes
     /// ("{base}/{live|movie|series}/{usuario}/{senha}/{id}.{ext}") com uma base
@@ -81,12 +88,12 @@ public sealed record XtreamCredential(string BaseUrl, string Username, string Pa
 /// Resolve a credencial do Xtream Codes sem que o usuario precise digitar
 /// usuario e senha em lugar nenhum:
 ///
-///  1. path  : /msx/{usuario}/{senha}/... (forma gerada pelo proprio app)
+///  1. host  : http://usuario-senha.host/... (primeiro trecho da URL)
 ///  2. query : ?u=usuario&amp;p=senha
-///  3. host  : http://usuario-senha.localhost:5000/... (localhost)
-///  4. secret: arquivo local de secrets (apenas dev / servidor proprio)
+///  3. secret: arquivo local de secrets (apenas dev / servidor proprio)
 ///
-/// A ordem importa: o path e o query explicitos vencem a inferencia do host.
+/// A credencial fica SEMPRE no primeiro trecho do host: nao existe mais
+/// sub-caminho com usuario/senha nas URLs.
 /// </summary>
 public sealed class CredentialResolver
 {
@@ -107,12 +114,13 @@ public sealed class CredentialResolver
         }
     }
 
-    /// <summary>Credencial vinda do path da rota (usuario/senha), se houver.</summary>
-    public XtreamCredential Resolve(HttpContext context, string? routeUser = null, string? routePass = null)
+    /// <summary>Credencial da requisicao (host -&gt; query -&gt; secrets).</summary>
+    public XtreamCredential Resolve(HttpContext context)
     {
-        if (!string.IsNullOrWhiteSpace(routeUser) && !string.IsNullOrWhiteSpace(routePass))
+        var fromHost = FromHost(PublicHost(context));
+        if (fromHost is not null)
         {
-            return new XtreamCredential(_options.BaseUrl, routeUser, routePass);
+            return fromHost;
         }
 
         var query = context.Request.Query;
@@ -124,16 +132,39 @@ public sealed class CredentialResolver
             return new XtreamCredential(_options.BaseUrl, user!, pass!);
         }
 
-        var fromHost = FromHost(context.Request.Host.Host);
-        if (fromHost is not null)
-        {
-            return fromHost;
-        }
-
         return _fallback ?? new XtreamCredential(_options.BaseUrl, string.Empty, string.Empty);
     }
 
-    /// <summary>Extrai "usuario-senha" do primeiro label do host (localhost).</summary>
+    /// <summary>
+    /// Host visto pelo app. Atras de um proxy o "Host" chega interno
+    /// (ex.: localhost:3000); o host publico vem no X-Forwarded-Host.
+    /// </summary>
+    public static string PublicHost(HttpContext context)
+    {
+        var forwarded = context.Request.Headers["X-Forwarded-Host"].FirstOrDefault();
+
+        if (!string.IsNullOrWhiteSpace(forwarded))
+        {
+            return forwarded.Split(',')[0].Trim();
+        }
+
+        return context.Request.Host.Value ?? context.Request.Host.Host;
+    }
+
+    /// <summary>Scheme publico (X-Forwarded-Proto tem prioridade sobre o do proxy).</summary>
+    public static string PublicScheme(HttpContext context)
+    {
+        var forwarded = context.Request.Headers["X-Forwarded-Proto"].FirstOrDefault();
+
+        if (!string.IsNullOrWhiteSpace(forwarded))
+        {
+            return forwarded.Split(',')[0].Trim();
+        }
+
+        return context.Request.Scheme;
+    }
+
+    /// <summary>Extrai "usuario-senha" do primeiro label do host.</summary>
     private XtreamCredential? FromHost(string host)
     {
         var prefix = CredentialPrefix(host);

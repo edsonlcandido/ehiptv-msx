@@ -28,12 +28,16 @@ public sealed class MsxContentFactory
     // Start / Menu
     // ------------------------------------------------------------------
 
-    /// <summary>Start Object: aponta para o menu, ja com a credencial na URL.</summary>
+    /// <summary>
+    /// Start Object: aponta direto para a tela inicial (os 3 itens).
+    /// Usar "content:" em vez de "menu:" e o que faz o MSX NAO mostrar a barra
+    /// lateral esquerda.
+    /// </summary>
     public MsxStart BuildStart(HttpContext context, XtreamCredential credential) => new()
     {
         Name = "Eh! IPTV",
         Version = "1.0.0",
-        Parameter = $"menu:{MenuUrl(context, credential)}"
+        Parameter = $"content:{ContentUrl(context, credential, "home.json")}"
     };
 
     /// <summary>
@@ -435,19 +439,18 @@ public sealed class MsxContentFactory
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Base publica do proprio app, sempre preservando o prefixo de credencial
-    /// do host ("<usuario>-<senha>.localhost:8080"): o usuario e a senha
-    /// ficam no inicio da URL e valem para todas as chamadas que o MSX faz.
+    /// Base publica do proprio app.
     ///
-    /// O PublicBaseUrl so entra quando o host da requisicao nao traz o
-    /// prefixo (por exemplo atras de um proxy que reescreve o Host) - e, mesmo
-    /// assim, o prefixo e recolocado na frente do host publico.
+    /// A credencial fica no PRIMEIRO TRECHO do host ("<usuario>-<senha>.dominio"),
+    /// nunca em sub-caminho. Atras de um proxy o "Host" chega interno
+    /// (ex.: localhost:3000), entao o host publico vem do X-Forwarded-Host e o
+    /// prefixo de credencial e reaplicado na frente dele.
     /// </summary>
     private string BaseUrl(HttpContext context)
     {
-        var scheme = context.Request.Scheme;
-        var requestHost = context.Request.Host.Host;
-        var hostAndPort = context.Request.Host.Value ?? requestHost;
+        var scheme = CredentialResolver.PublicScheme(context);
+        var publicHost = CredentialResolver.PublicHost(context);
+        var hostAndPort = publicHost;
         var publicUrl = _options.PublicBaseUrl?.TrimEnd('/');
 
         if (!string.IsNullOrWhiteSpace(publicUrl))
@@ -455,25 +458,27 @@ public sealed class MsxContentFactory
             var uri = new Uri(publicUrl);
             scheme = uri.Scheme;
 
-            var publicHost = uri.IsDefaultPort
+            var configuredHost = uri.IsDefaultPort
                 ? uri.Host
                 : $"{uri.Host}:{uri.Port}";
 
-            var prefix = CredentialResolver.CredentialPrefix(requestHost);
+            // Se o host publico configurado ja tem o prefixo de credencial,
+            // ele manda; senao reaplica o prefixo do host que chegou.
+            var prefix = CredentialResolver.CredentialPrefix(publicHost);
 
-            hostAndPort = prefix is not null && !publicHost.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                ? $"{prefix}.{publicHost}"
-                : publicHost;
+            hostAndPort = prefix is not null && !configuredHost.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                ? $"{prefix}.{configuredHost}"
+                : configuredHost;
         }
 
         return $"{scheme}://{hostAndPort}";
     }
 
     private string MenuUrl(HttpContext context, XtreamCredential credential) =>
-        $"{BaseUrl(context)}/msx/{credential.PathSegment}/menu.json";
+        $"{BaseUrl(context)}/msx/menu.json";
 
     private string ContentUrl(HttpContext context, XtreamCredential credential, string relative) =>
-        $"{BaseUrl(context)}/msx/{credential.PathSegment}/content/{relative}";
+        $"{BaseUrl(context)}/msx/content/{relative}";
 
     /// <summary>
     /// Junta o ano ao titulo. O provedor ja entrega alguns nomes com o ano
