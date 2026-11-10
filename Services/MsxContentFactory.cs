@@ -258,9 +258,9 @@ public sealed class MsxContentFactory
 
     /// <summary>
     /// Largura do card de canal (em colunas da grade comprimida). O card de
-    /// canal e horizontal: logo do canal a esquerda, nome a direita.
+    /// canal ocupa a largura toda da area de conteudo: UM canal por linha.
     /// </summary>
-    private const int ChannelCardColumns = 6;
+    private const int ChannelCardColumns = GridColumns - SidebarColumns;
 
     /// <summary>Cards de canal por linha e por pagina.</summary>
     private const int ChannelCardsPerRow = (GridColumns - SidebarColumns) / ChannelCardColumns;
@@ -268,10 +268,10 @@ public sealed class MsxContentFactory
 
     /// <summary>
     /// Largura da imagem dentro do card de canal. O MSX mede a imagem na
-    /// mesma unidade do "layout" do item (colunas da grade), entao 1.8 de 6
-    /// colunas = 30% do card, deixando o nome do canal ao lado.
+    /// mesma unidade do "layout" do item (colunas da grade), entao 3 de 12
+    /// colunas = 25% do card, deixando o nome do canal ao lado.
     /// </summary>
-    private const double ChannelImageWidth = 1.8;
+    private const double ChannelImageWidth = 3;
 
     /// <summary>Posiciona um cartaz de filme/serie na grade da area de conteudo.</summary>
     private static void PlacePoster(MsxContentItem item, int index)

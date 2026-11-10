@@ -41,18 +41,18 @@ e um Content Root do tipo `list`, montado com `pages` posicionadas à mão:
   página**. Cada cartaz ocupa 2 colunas × 4 linhas; com o item do tipo `separate`, 3 linhas
   são de imagem (240×405 px em 1080p — proporção de poster vertical) e 1 linha é a
   faixa do título.
-- **Cards de Canais (colunas 4–15)**: **2 cards por linha × 8 linhas = 16 por página**.
-  Cada card ocupa 6 colunas × 1 linha e é um item do tipo `default` com `imageWidth: 1.8`
-  (o MSX mede a imagem na mesma unidade do `layout` — 1,8 de 6 colunas ≈ 30% do card):
-  o **logo do canal fica à esquerda** e o **nome do canal à direita**. O `imageFiller: "fit"`
-  mostra a logomarca inteira, sem corte.
+- **Cards de Canais (colunas 4–15)**: **1 canal por linha × 8 linhas = 8 por página**.
+  Cada card ocupa a largura toda da área de conteúdo (12 colunas × 1 linha) e é um item
+  do tipo `default` com `imageWidth: 3` (o MSX mede a imagem na mesma unidade do
+  `layout` — 3 de 12 colunas = 25% do card): o **logo do canal fica à esquerda** e o
+  **nome do canal à direita**. O `imageFiller: "fit"` mostra a logomarca inteira, sem corte.
 - **Scroll vertical**: o tipo `list` empilha as páginas na vertical. Cada página
   seguinte traz mais conteúdo da mesma categoria (e a janela da barra lateral
   anda junto), então navegar para baixo carrega conteúdo novo.
 - A tela abre focando o primeiro item da área de conteúdo (e não a barra lateral).
 
 O limite de itens por tela é `MaxPosterItems` (padrão 672 → 56 páginas de 12 cartazes) para
-Filmes/Séries e `MaxChannelItems` (padrão 1200 → 75 páginas de 16 canais) para Canais.
+Filmes/Séries e `MaxChannelItems` (padrão 1200 → 150 páginas de 8 canais) para Canais.
 
 ## A credencial vai no primeiro trecho da URL
 
@@ -242,7 +242,7 @@ provedor entram por variável de ambiente (ver abaixo) ou pelo arquivo de secret
 - `PlaybackBaseUrl` — base fixa das URLs de playback; tem prioridade sobre o
   `server_info`. Vazio = usar o `server_info`.
 - `MaxPosterItems` — teto de cartazes por tela de Filmes/Séries (padrão 672 → 56 páginas de 12 cartazes; o MSX aceita no máximo 1024 páginas no tipo `list` e 256 itens por página).
-- `MaxChannelItems` — teto de canais por tela de Canais (padrão 1200 → 75 páginas de 16 canais).
+- `MaxChannelItems` — teto de canais por tela de Canais (padrão 1200 → 150 páginas de 8 canais).
 - `CategoriesCacheMinutes` — minutos de cache da lista de categorias (padrão 5). O
   provedor **cria, renomeia e apaga** as categorias de evento ao longo do dia
   (ex.: `Canais | Jogos do dia` → `Canais | Eventos de Hoje`, com os canais
