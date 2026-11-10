@@ -55,6 +55,14 @@ public sealed class XtreamOptions
     public string DefaultLiveCategory { get; set; } = "1";
 
     /// <summary>
+    /// Minutos de cache da lista de categorias. O provedor cria, renomeia e
+    /// apaga as categorias de evento ao longo do dia ("Canais | Jogos do dia"
+    /// virou "Canais | Eventos de Hoje"), entao a lista precisa ser curta:
+    /// com 30 min a tela ficava mostrando uma categoria que ja nao existia.
+    /// </summary>
+    public int CategoriesCacheMinutes { get; set; } = 5;
+
+    /// <summary>
     /// Limite de itens de uma tela de Filmes/Séries. Cada página do navegador
     /// tem 10 cartazes, então 672 itens = 68 páginas (o MSX aceita no máximo
     /// 1024 páginas no tipo "list" e 256 itens por página).

@@ -243,6 +243,10 @@ provedor entram por variável de ambiente (ver abaixo) ou pelo arquivo de secret
   `server_info`. Vazio = usar o `server_info`.
 - `MaxPosterItems` — teto de cartazes por tela de Filmes/Séries (padrão 672 → 56 páginas de 12 cartazes; o MSX aceita no máximo 1024 páginas no tipo `list` e 256 itens por página).
 - `MaxChannelItems` — teto de canais por tela de Canais (padrão 1200 → 75 páginas de 16 canais).
+- `CategoriesCacheMinutes` — minutos de cache da lista de categorias (padrão 5). O
+  provedor **cria, renomeia e apaga** as categorias de evento ao longo do dia
+  (ex.: `Canais | Jogos do dia` → `Canais | Eventos de Hoje`, com os canais
+  `Jogos de Hoje` e `Lutas do Dia`), então a lista precisa ser curta.
 - `DefaultLiveCategory` / `DefaultVodCategory` / `DefaultSeriesCategory` — categoria que abre
   cada tela (`"1"` = *Canais | Abertos*). Se o id não existir no provedor, a primeira
   categoria da lista é usada.
@@ -324,7 +328,7 @@ docker run -p 8080:8080 -e Xtream__PublicBaseUrl=http://<usuario>-<senha>.localh
 - As capas vêm de `http://lgfp.one` (Cloudflare). O app força `https` nessas URLs para
   o preview no navegador não sofrer mixed content.
 - Catálogo grande (44 mil filmes, 10 mil séries, 2.736 canais): as respostas do
-  `player_api.php` ficam em cache (categorias 30 min, listas 5 min, `server_info` 30 min).
+  `player_api.php` ficam em cache (categorias 5 min, listas 5 min, `server_info` 30 min).
   O cache guarda o JSON bruto e cada requisição desserializa uma cópia, para nenhum
   chamador alterar o que ficou guardado.
 - No MSX, `items` na raiz do Content Root **exige** `template` — sem isso o MSX ignora os

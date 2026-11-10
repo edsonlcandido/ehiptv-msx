@@ -50,7 +50,11 @@ public sealed class XtreamClient
     }
 
     public Task<List<XtreamCategory>> GetCategoriesAsync(XtreamCredential credential, string kind) =>
-        GetListAsync<XtreamCategory>(credential, $"get_{kind}_categories", null, TimeSpan.FromMinutes(30));
+        GetListAsync<XtreamCategory>(
+            credential,
+            $"get_{kind}_categories",
+            null,
+            TimeSpan.FromMinutes(Math.Max(1, _options.CategoriesCacheMinutes)));
 
     public Task<List<XtreamLiveStream>> GetLiveAsync(XtreamCredential credential, string categoryId) =>
         GetListAsync<XtreamLiveStream>(credential, "get_live_streams", $"category_id={categoryId}", TimeSpan.FromMinutes(5));
