@@ -67,13 +67,13 @@ public sealed class MsxContentFactory
                 {
                     Icon = "msx-white-soft:movie",
                     Label = "Filmes",
-                    Data = ContentUrl(context, credential, "vod.json")
+                    Data = SectionMenuUrl(context, "vod.json")
                 },
                 new MsxMenuItem
                 {
                     Icon = "msx-white-soft:video-library",
                     Label = "Séries",
-                    Data = ContentUrl(context, credential, "series.json")
+                    Data = SectionMenuUrl(context, "series.json")
                 },
                 new MsxMenuItem { Type = "separator" }
             ]
@@ -99,7 +99,7 @@ public sealed class MsxContentFactory
             menu.Menu.Add(new MsxMenuItem
             {
                 Label = category.CategoryName,
-                Data = ContentUrl(context, credential, $"vod/{category.CategoryId}.json")
+                Data = PagingAction(context, $"vod/{category.CategoryId}.json")
             });
         }
 
@@ -110,7 +110,7 @@ public sealed class MsxContentFactory
             menu.Menu.Add(new MsxMenuItem
             {
                 Label = category.CategoryName,
-                Data = ContentUrl(context, credential, $"series/{category.CategoryId}.json")
+                Data = PagingAction(context, $"series/{category.CategoryId}.json")
             });
         }
 
@@ -136,14 +136,15 @@ public sealed class MsxContentFactory
         },
         Items =
         [
-            // "Canais" abre o MENU do app (coluna nativa): as categorias de TV
-            // ficam na coluna da esquerda, que rola e mostra todas.
+            // "Canais", "Filmes" e "Series" abrem o MENU do app (coluna
+            // nativa): as categorias ficam na coluna da esquerda, que rola e
+            // mostra todas, e o conteudo abre em tela cheia.
             HomeCard("msx-white-soft:live-tv", "Canais ao vivo",
                 SectionMenuUrl(context, "live.json"), "menu"),
             HomeCard("msx-white-soft:movie", "Filmes e VOD",
-                ContentUrl(context, credential, "vod.json")),
+                SectionMenuUrl(context, "vod.json"), "menu"),
             HomeCard("msx-white-soft:video-library", "Séries e episódios",
-                ContentUrl(context, credential, "series.json"))
+                SectionMenuUrl(context, "series.json"), "menu")
         ]
     };
 
@@ -254,6 +255,13 @@ public sealed class MsxContentFactory
     /// <summary>Canais por pagina na lista de TV (4 linhas de 1,5 na grade).</summary>
     private const int ChannelRowsPerPage = 4;
 
+    /// <summary>
+    /// Largura da imagem dentro do card de canal. O MSX mede a imagem na
+    /// mesma unidade do "layout" do item (colunas da grade), entao 1.6 de 12
+    /// colunas = 13% do card, deixando o nome do canal ao lado.
+    /// </summary>
+    private const double ChannelImageWidth = 1.6;
+
     /// <summary>Espacamento entre um canal e o seguinte, em linhas da grade.</summary>
     private const double ChannelRowPitch = 1.5;
 
@@ -294,25 +302,14 @@ public sealed class MsxContentFactory
         $"{BaseUrl(context)}/msx/live/epg?stream_id={Uri.EscapeDataString(streamId)}";
 
     // ------------------------------------------------------------------
-    // Telas 3 e 4 - Filmes e Series (navegador no estilo XCIPTV)
+    // Telas 3 e 4 - Filmes e Series (menu nativo + paging das capas)
     // ------------------------------------------------------------------
 
     /// <summary>
     /// Grade comprimida do MSX: 16 colunas x 8 linhas (o padrao e 12x6).
-    /// A grade comprimida e a unica que permite dividir a tela em uma barra
-    /// lateral de categorias + uma grade de cartazes com proporcao de poster.
     /// </summary>
     private const int GridColumns = 16;
     private const int GridRows = 8;
-
-    /// <summary>Colunas da barra lateral de categorias (0..3).</summary>
-    private const int SidebarColumns = 4;
-
-    /// <summary>
-    /// A barra lateral tem UMA coluna de categorias (1 item por linha da
-    /// grade). Com 8 linhas da grade, cabem 8 categorias por pagina.
-    /// </summary>
-    private const int SidebarItemColumns = 4;
 
     /// <summary>Largura de cada cartaz (em colunas da grade comprimida).</summary>
     private const int PosterColumns = 2;
@@ -323,253 +320,163 @@ public sealed class MsxContentFactory
     /// </summary>
     private const int PosterHeight = 4;
 
-    /// <summary>Cartazes por linha, por pagina e vagas da barra lateral.</summary>
-    private const int PosterPerRow = (GridColumns - SidebarColumns) / PosterColumns;
-    private const int PosterRowsPerPage = GridRows / PosterHeight;
-    private const int PosterPerPage = PosterPerRow * PosterRowsPerPage;
-    private const int SidebarSlots = GridRows;
+    /// <summary>Cartazes por pagina na grade comprimida (8 por linha x 2 linhas).</summary>
+    private const int PosterPerPage = (GridColumns / PosterColumns) * (GridRows / PosterHeight);
 
     /// <summary>
-    /// Quantas categorias a janela da barra lateral avanca a cada pagina
-    /// rolada. A coluna mostra a categoria ativa fixa no topo + esta janela
-    /// + o botao "Mais categorias" no fim.
+    /// Menu (coluna nativa do app) com as categorias de filmes. Cada item
+    /// abre a grade de cartazes da categoria, paginada pelo Paging Plugin.
     /// </summary>
-    private const int SidebarWindow = SidebarSlots - 2;
-
-    /// <summary>
-    /// Largura da imagem dentro do card de canal. O MSX mede a imagem na
-    /// mesma unidade do "layout" do item (colunas da grade), entao 1.6 de 12
-    /// colunas = 13% do card, deixando o nome do canal ao lado.
-    /// </summary>
-    private const double ChannelImageWidth = 1.6;
-
-    /// <summary>Posiciona um cartaz de filme/serie na grade da area de conteudo.</summary>
-    private static void PlacePoster(MsxContentItem item, int index)
+    public async Task<MsxMenu> BuildVodMenuAsync(HttpContext context, XtreamCredential credential)
     {
-        var column = index % PosterPerRow;
-        var row = index / PosterPerRow;
+        var categories = await _xtream.GetCategoriesAsync(credential, "vod");
 
-        item.Layout =
-            $"{SidebarColumns + column * PosterColumns},{row * PosterHeight},{PosterColumns},{PosterHeight}";
+        return new MsxMenu
+        {
+            Headline = "Filmes",
+            Menu = categories.Select(category => new MsxMenuItem
+            {
+                Id = $"cat_{category.CategoryId}",
+                Label = CleanCategoryName(category.CategoryName),
+                Data = PagingAction(context, $"vod/{category.CategoryId}.json")
+            }).ToList()
+        };
+    }
+
+    /// <summary>Menu (coluna nativa do app) com as categorias de series.</summary>
+    public async Task<MsxMenu> BuildSeriesMenuAsync(HttpContext context, XtreamCredential credential)
+    {
+        var categories = await _xtream.GetCategoriesAsync(credential, "series");
+
+        return new MsxMenu
+        {
+            Headline = "Séries",
+            Menu = categories.Select(category => new MsxMenuItem
+            {
+                Id = $"cat_{category.CategoryId}",
+                Label = CleanCategoryName(category.CategoryName),
+                Data = PagingAction(context, $"series/{category.CategoryId}.json")
+            }).ToList()
+        };
     }
 
     /// <summary>
-    /// Tela de Filmes no estilo XCIPTV: barra lateral com as categorias a
-    /// esquerda e a grade de cartazes (proporcao poster) a direita. O tipo
-    /// "list" empilha as paginas na vertical: navegar para baixo carrega
-    /// mais cartazes da mesma categoria.
+    /// Acao do Paging Plugin do MSX: o plugin carrega a primeira pagina de
+    /// cartazes e, quando o ultimo cartaz da pagina fica visivel, pede a
+    /// proxima pagina (offset/limit) ao content service.
+    ///
+    /// O prefixo e "request:interaction:" (sem "content:") porque este valor
+    /// vai no campo "data" de um item de menu: para o MSX, "content:" e sintaxe
+    /// de acao e nao um valor valido para o "data" do menu.
     /// </summary>
-    public async Task<MsxContent> BuildVodBrowserAsync(
+    public string PagingAction(HttpContext context, string relative) =>
+        $"request:interaction:{BaseUrl(context)}/msx/service/{relative}" +
+        $"?offset={{OFFSET}}&limit={{LIMIT}}|{_options.PagingLimit}@{_options.PagingPluginUrl}";
+
+    /// <summary>
+    /// Filmes: grade de cartazes (proporcao de poster) com paginacao sob
+    /// demanda. O "template" define o cartaz (2 colunas x 4 linhas) e o MSX
+    /// posiciona os itens automaticamente.
+    /// </summary>
+    public async Task<MsxContent> BuildVodContentAsync(
         HttpContext context,
         XtreamCredential credential,
         string? categoryId = null,
-        int? take = null)
+        int offset = 0,
+        int limit = PosterPerPage)
     {
         var categories = await _xtream.GetCategoriesAsync(credential, "vod");
         var activeId = ResolveCategoryId(categories, categoryId, _options.DefaultVodCategory);
         var active = categories.FirstOrDefault(c => c.CategoryId == activeId);
-        var movies = await _xtream.GetVodAsync(credential, activeId);
+        var movies = (await _xtream.GetVodAsync(credential, activeId))
+            .Take(_options.MaxPosterItems)
+            .ToList();
         var playbackBase = await _xtream.ResolvePlaybackBaseAsync(credential);
 
-        var visible = movies.Take(take ?? _options.MaxPosterItems).ToList();
+        var visible = movies.Skip(offset).Take(limit).ToList();
 
-        var posters = visible.Select(movie =>
+        var items = visible.Select((movie, index) =>
         {
             var title = string.IsNullOrWhiteSpace(movie.Title) ? movie.Name : movie.Title!;
             var extension = string.IsNullOrWhiteSpace(movie.ContainerExtension) ? "mp4" : movie.ContainerExtension!;
 
             return new MsxContentItem
             {
-                Type = "separate",
                 Title = TitleWithYear(title, movie.Year),
                 Image = NormalizeImage(movie.StreamIcon),
-                ImageFiller = "cover",
                 Badge = string.IsNullOrWhiteSpace(movie.Rating) ? null : movie.Rating,
                 Action = $"video:{credential.BuildFrom(playbackBase, "movie", movie.StreamId, extension)}",
-                PlayerLabel = title
+                PlayerLabel = title,
+                Focus = offset == 0 && index == 0 ? true : null
             };
         }).ToList();
-
-        return BuildBrowser(
-            categories,
-            activeId,
-            HeadlineName(active?.CategoryName, "Filmes"),
-            "filmes",
-            id => ContentUrl(context, credential, $"vod/{id}.json"),
-            ContentUrl(context, credential, "vod-categories.json"),
-            posters,
-            PosterPerPage,
-            PlacePoster);
-    }
-
-    /// <summary>
-    /// Tela de Series no estilo XCIPTV (mesmo desenho da tela de Filmes).
-    /// </summary>
-    public async Task<MsxContent> BuildSeriesBrowserAsync(
-        HttpContext context,
-        XtreamCredential credential,
-        string? categoryId = null,
-        int? take = null)
-    {
-        var categories = await _xtream.GetCategoriesAsync(credential, "series");
-        var activeId = ResolveCategoryId(categories, categoryId, _options.DefaultSeriesCategory);
-        var active = categories.FirstOrDefault(c => c.CategoryId == activeId);
-        var series = await _xtream.GetSeriesAsync(credential, activeId);
-
-        var visible = series.Take(take ?? _options.MaxPosterItems).ToList();
-
-        var posters = visible.Select(item =>
-        {
-            var title = string.IsNullOrWhiteSpace(item.Title) ? item.Name : item.Title!;
-
-            return new MsxContentItem
-            {
-                Type = "separate",
-                Title = TitleWithYear(title, item.Year),
-                Image = NormalizeImage(item.Cover),
-                ImageFiller = "cover",
-                Badge = string.IsNullOrWhiteSpace(item.Rating) ? null : item.Rating,
-                Action = $"content:{ContentUrl(context, credential, $"series-info/{item.SeriesId}.json")}",
-                PlayerLabel = title
-            };
-        }).ToList();
-
-        return BuildBrowser(
-            categories,
-            activeId,
-            HeadlineName(active?.CategoryName, "Séries"),
-            "séries",
-            id => ContentUrl(context, credential, $"series/{id}.json"),
-            ContentUrl(context, credential, "series-categories.json"),
-            posters,
-            PosterPerPage,
-            PlacePoster);
-    }
-
-    /// <summary>
-    /// Monta o navegador: barra lateral de categorias + area de conteudo
-    /// paginada na vertical. A barra lateral e montada por pagina porque a
-    /// janela de categorias avanca junto com a rolagem (a grade do MSX tem
-    /// apenas 8 linhas, entao uma coluna so comporta 8 categorias por vez).
-    ///
-    /// A area de conteudo e generica: "entries" sao os itens (cartazes de
-    /// filme/serie ou cards de canal) e "place" posiciona cada um na grade.
-    /// </summary>
-    private MsxContent BuildBrowser(
-        List<XtreamCategory> categories,
-        string activeCategoryId,
-        string headline,
-        string unit,
-        Func<string, string> categoryUrl,
-        string categoriesUrl,
-        List<MsxContentItem> entries,
-        int perPage,
-        Action<MsxContentItem, int> place)
-    {
-        var pages = new List<MsxContentPage>();
-
-        for (var offset = 0; offset < entries.Count; offset += perPage)
-        {
-            var items = BuildSidebar(categories, activeCategoryId, categoryUrl, categoriesUrl, pages.Count);
-
-            for (var index = 0; index < perPage && offset + index < entries.Count; index++)
-            {
-                var entry = entries[offset + index];
-
-                place(entry, index);
-                entry.Focus = offset == 0 && index == 0 ? true : null;
-
-                items.Add(entry);
-            }
-
-            pages.Add(new MsxContentPage { Items = items });
-        }
-
-        if (pages.Count == 0)
-        {
-            pages.Add(new MsxContentPage
-            {
-                Items =
-                [
-                    .. BuildSidebar(categories, activeCategoryId, categoryUrl, categoriesUrl, 0),
-                    new MsxContentItem
-                    {
-                        Layout = $"{SidebarColumns},0,{GridColumns - SidebarColumns},{GridRows}",
-                        Type = "default",
-                        Title = "Nenhum item nesta categoria",
-                        Color = "msx-glass"
-                    }
-                ]
-            });
-        }
 
         return new MsxContent
         {
             Compress = true,
             Type = "list",
-            Headline = headline,
-            Hint = $"{entries.Count} {unit}",
-            Pages = pages
+            Headline = HeadlineName(active?.CategoryName, "Filmes"),
+            Extension = $"{movies.Count} filmes",
+            Template = PosterTemplate(),
+            Items = items
         };
     }
 
     /// <summary>
-    /// Barra lateral: UMA coluna de categorias. A categoria ativa fica fixa no
-    /// topo (destacada), as demais entram numa janela que avanca a cada pagina
-    /// rolada — assim todas as categorias do provedor ficam na mesma coluna —
-    /// e a ultima vaga leva para a lista completa.
+    /// Series: mesma grade de cartazes dos filmes. Cada cartaz abre a pagina
+    /// de episodios da serie.
     /// </summary>
-    private List<MsxContentItem> BuildSidebar(
-        List<XtreamCategory> categories,
-        string activeCategoryId,
-        Func<string, string> categoryUrl,
-        string categoriesUrl,
-        int pageIndex)
+    public async Task<MsxContent> BuildSeriesContentAsync(
+        HttpContext context,
+        XtreamCredential credential,
+        string? categoryId = null,
+        int offset = 0,
+        int limit = PosterPerPage)
     {
-        var items = new List<MsxContentItem>();
-        var active = categories.FirstOrDefault(c => c.CategoryId == activeCategoryId);
+        var categories = await _xtream.GetCategoriesAsync(credential, "series");
+        var activeId = ResolveCategoryId(categories, categoryId, _options.DefaultSeriesCategory);
+        var active = categories.FirstOrDefault(c => c.CategoryId == activeId);
+        var series = (await _xtream.GetSeriesAsync(credential, activeId))
+            .Take(_options.MaxPosterItems)
+            .ToList();
 
-        if (active is not null)
+        var visible = series.Skip(offset).Take(limit).ToList();
+
+        var items = visible.Select((item, index) =>
         {
-            items.Add(SidebarItem(active, 0, true, categoryUrl));
-        }
+            var title = string.IsNullOrWhiteSpace(item.Title) ? item.Name : item.Title!;
 
-        var others = categories.Where(c => c.CategoryId != activeCategoryId).ToList();
-
-        if (others.Count > 0)
-        {
-            var start = (pageIndex * SidebarWindow) % others.Count;
-
-            for (var index = 0; index < SidebarWindow; index++)
+            return new MsxContentItem
             {
-                var category = others[(start + index) % others.Count];
-                items.Add(SidebarItem(category, index + 1, false, categoryUrl));
-            }
-        }
+                Title = TitleWithYear(title, item.Year),
+                Image = NormalizeImage(item.Cover),
+                Badge = string.IsNullOrWhiteSpace(item.Rating) ? null : item.Rating,
+                Action = $"content:{ContentUrl(context, credential, $"series-info/{item.SeriesId}.json")}",
+                PlayerLabel = title,
+                Focus = offset == 0 && index == 0 ? true : null
+            };
+        }).ToList();
 
-        // Ultima vaga: lista completa de categorias.
-        items.Add(new MsxContentItem
+        return new MsxContent
         {
-            Layout = $"0,{SidebarSlots - 1},{SidebarItemColumns},1",
-            Type = "default",
-            Title = "Mais categorias",
-            Color = "msx-glass",
-            Action = $"content:{categoriesUrl}"
-        });
-
-        return items;
+            Compress = true,
+            Type = "list",
+            Headline = HeadlineName(active?.CategoryName, "Séries"),
+            Extension = $"{series.Count} séries",
+            Template = PosterTemplate(),
+            Items = items
+        };
     }
 
-    private static MsxContentItem SidebarItem(
-        XtreamCategory category, int row, bool isActive, Func<string, string> categoryUrl) =>
-        new()
-        {
-            Layout = $"0,{row},{SidebarItemColumns},1",
-            Type = "default",
-            Title = CleanCategoryName(category.CategoryName),
-            Color = isActive ? "msx-blue" : "msx-glass",
-            Action = $"content:{categoryUrl(category.CategoryId)}"
-        };
+    /// <summary>Template do cartaz: proporcao vertical de poster.</summary>
+    private static MsxTemplate PosterTemplate() => new()
+    {
+        Type = "separate",
+        Layout = "0,0,2,4",
+        Color = "msx-glass",
+        ImageFiller = "cover"
+    };
+
 
     /// <summary>Lista completa de categorias (destino do "Mais categorias").</summary>
     public Task<MsxContent> BuildVodCategoriesAsync(HttpContext context, XtreamCredential credential) =>
@@ -712,22 +619,19 @@ public sealed class MsxContentFactory
     /// Menu compacto com o conteudo embutido (sem fetch): serve para gerar o
     /// link de teste https://msx.benzac.de/?start=menu:json:{BASE64}.
     ///
-    /// Os cards da tela Inicio usam "content:json:{BASE64}" (acao com o JSON
-    /// inline), assim o preview funciona sem depender do servidor.
+    /// O card de Canais usa "content:json:{BASE64}" (acao com o JSON inline),
+    /// assim o preview funciona sem depender do servidor. Filmes e Series
+    /// abrem o menu nativo (com as categorias), que precisa do servidor.
     /// </summary>
     public async Task<MsxMenu> BuildPreviewMenuAsync(HttpContext context, XtreamCredential credential)
     {
         var live = await BuildLiveChannelListAsync(context, credential, take: 8);
-        var vod = await BuildVodBrowserAsync(context, credential, take: PosterPerPage);
-        var series = await BuildSeriesBrowserAsync(context, credential, take: PosterPerPage);
 
         var home = BuildHome(context, credential);
 
         if (home.Items is { Count: 3 })
         {
             home.Items[0].Action = $"content:json:{ToBase64(live)}";
-            home.Items[1].Action = $"content:json:{ToBase64(vod)}";
-            home.Items[2].Action = $"content:json:{ToBase64(series)}";
         }
 
         return new MsxMenu
@@ -737,8 +641,18 @@ public sealed class MsxContentFactory
             [
                 new MsxMenuItem { Icon = "home", Label = "Início", Data = home },
                 new MsxMenuItem { Icon = "msx-white-soft:live-tv", Label = "Canais", Data = live },
-                new MsxMenuItem { Icon = "msx-white-soft:movie", Label = "Filmes", Data = vod },
-                new MsxMenuItem { Icon = "msx-white-soft:video-library", Label = "Séries", Data = series }
+                new MsxMenuItem
+                {
+                    Icon = "msx-white-soft:movie",
+                    Label = "Filmes",
+                    Data = SectionMenuUrl(context, "vod.json")
+                },
+                new MsxMenuItem
+                {
+                    Icon = "msx-white-soft:video-library",
+                    Label = "Séries",
+                    Data = SectionMenuUrl(context, "series.json")
+                }
             ]
         };
     }

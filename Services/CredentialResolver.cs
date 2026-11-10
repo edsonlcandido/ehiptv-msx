@@ -73,6 +73,23 @@ public sealed class XtreamOptions
     public int MaxChannelItems { get; set; } = 1200;
 
     /// <summary>
+    /// Pagina do Paging Plugin do MSX (o plugin oficial que carrega as capas
+    /// sob demanda). O MSX abre essa pagina em segundo plano e pede a
+    /// proxima pagina de cartazes quando o ultimo item da pagina fica
+    /// visivel.
+    ///
+    /// Aponta para o plugin oficial do MSX; troque por uma copia servida pelo
+    /// proprio app se preferir nao depender de fora.
+    /// </summary>
+    public string PagingPluginUrl { get; set; } = "http://msx.benzac.de/interaction/paging.html";
+
+    /// <summary>
+    /// Quantos cartazes o MSX pede por vez ao content service. 16 = uma
+    /// pagina cheia da grade comprimida (16x8, cartaz de 2 colunas x 4 linhas).
+    /// </summary>
+    public int PagingLimit { get; set; } = 16;
+
+    /// <summary>
     /// Deriva a base das URLs de playback do "server_info" devolvido pelo
     /// player_api.php (padrao IPTV Xtream Codes). Desligue com
     /// Xtream__UseServerInfo=false para usar sempre o host do painel.

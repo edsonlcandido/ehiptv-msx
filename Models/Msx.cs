@@ -76,6 +76,13 @@ public sealed class MsxContent
     [JsonPropertyName("hint")]
     public string? Hint { get; set; }
 
+    /// <summary>
+    /// Texto pequeno no cabecalho da tela (ex.: "Total: 500"). No Paging
+    /// Plugin do MSX e onde o total de itens aparece.
+    /// </summary>
+    [JsonPropertyName("extension")]
+    public string? Extension { get; set; }
+
     [JsonPropertyName("template")]
     public MsxTemplate? Template { get; set; }
 
@@ -377,8 +384,13 @@ public sealed class MsxResponseEnvelope
     [JsonPropertyName("message")]
     public string? Message { get; set; }
 
+    /// <summary>
+    /// Conteudo da resposta. No servico de live data e um
+    /// <see cref="MsxResponseData"/> (com a acao "update:content:ID"); num
+    /// content service (Paging Plugin) e o proprio Content Root.
+    /// </summary>
     [JsonPropertyName("data")]
-    public MsxResponseData? Data { get; set; }
+    public object? Data { get; set; }
 }
 
 public sealed class MsxResponseData
@@ -389,6 +401,16 @@ public sealed class MsxResponseData
 
     [JsonPropertyName("data")]
     public MsxLiveUpdate? Data { get; set; }
+}
+
+/// <summary>
+/// Resposta de um "content service" do MSX (o que o Paging Plugin consome):
+/// {"response":{"status":200,"text":"OK","data":{ ...content root... }}}.
+/// </summary>
+public sealed class MsxServiceResponse
+{
+    [JsonPropertyName("response")]
+    public MsxResponseEnvelope Response { get; set; } = new();
 }
 
 public sealed class MsxLiveUpdate

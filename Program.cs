@@ -263,12 +263,22 @@ app.MapMethods("/msx/live/epg", ["GET", "POST"], async (HttpContext context, Cre
     return Results.Json(response, MsxJson.Options);
 });
 
-// Filmes: navegador (barra lateral de categorias + grade de cartazes).
+// Filmes: menu com as categorias (coluna nativa do app) + grade de
+// cartazes paginada pelo Paging Plugin do MSX.
+app.MapGet("/msx/menu/vod.json", async (HttpContext context, CredentialResolver resolver,
+    MsxContentFactory factory) =>
+{
+    var credential = resolver.Resolve(context);
+    var menu = await factory.BuildVodMenuAsync(context, credential);
+    return Results.Json(menu, MsxJson.Options);
+});
+
+// Filmes: cartazes da categoria (link direto, sem paginacao).
 app.MapGet("/msx/content/vod.json", async (HttpContext context, CredentialResolver resolver,
     MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildVodBrowserAsync(context, credential);
+    var content = await factory.BuildVodContentAsync(context, credential);
     return Results.Json(content, MsxJson.Options);
 });
 
@@ -276,11 +286,26 @@ app.MapGet("/msx/content/vod/{categoryId}.json", async (HttpContext context, str
     CredentialResolver resolver, MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildVodBrowserAsync(context, credential, categoryId);
+    var content = await factory.BuildVodContentAsync(context, credential, categoryId);
     return Results.Json(content, MsxJson.Options);
 });
 
-// Lista completa de categorias de filmes (destino do "Mais categorias").
+// Content service do Paging Plugin: devolve uma pagina de cartazes no
+// envelope do MSX ({"response":{"status":200,...,"data":{...}}}).
+app.MapGet("/msx/service/vod/{categoryId}.json", async (HttpContext context, string categoryId,
+    CredentialResolver resolver, MsxContentFactory factory) =>
+{
+    var credential = resolver.Resolve(context);
+    var (offset, limit) = ReadPaging(context);
+    var content = await factory.BuildVodContentAsync(context, credential, categoryId, offset, limit);
+
+    return Results.Json(new MsxServiceResponse
+    {
+        Response = new MsxResponseEnvelope { Status = 200, Text = "OK", Data = content }
+    }, MsxJson.Options);
+});
+
+// Lista completa de categorias de filmes.
 app.MapGet("/msx/content/vod-categories.json", async (HttpContext context, CredentialResolver resolver,
     MsxContentFactory factory) =>
 {
@@ -289,12 +314,21 @@ app.MapGet("/msx/content/vod-categories.json", async (HttpContext context, Crede
     return Results.Json(content, MsxJson.Options);
 });
 
-// Series: navegador (barra lateral de categorias + grade de cartazes).
+// Series: menu com as categorias (coluna nativa do app).
+app.MapGet("/msx/menu/series.json", async (HttpContext context, CredentialResolver resolver,
+    MsxContentFactory factory) =>
+{
+    var credential = resolver.Resolve(context);
+    var menu = await factory.BuildSeriesMenuAsync(context, credential);
+    return Results.Json(menu, MsxJson.Options);
+});
+
+// Series: cartazes da categoria (link direto, sem paginacao).
 app.MapGet("/msx/content/series.json", async (HttpContext context, CredentialResolver resolver,
     MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildSeriesBrowserAsync(context, credential);
+    var content = await factory.BuildSeriesContentAsync(context, credential);
     return Results.Json(content, MsxJson.Options);
 });
 
@@ -302,8 +336,22 @@ app.MapGet("/msx/content/series/{categoryId}.json", async (HttpContext context, 
     CredentialResolver resolver, MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildSeriesBrowserAsync(context, credential, categoryId);
+    var content = await factory.BuildSeriesContentAsync(context, credential, categoryId);
     return Results.Json(content, MsxJson.Options);
+});
+
+// Content service do Paging Plugin (series).
+app.MapGet("/msx/service/series/{categoryId}.json", async (HttpContext context, string categoryId,
+    CredentialResolver resolver, MsxContentFactory factory) =>
+{
+    var credential = resolver.Resolve(context);
+    var (offset, limit) = ReadPaging(context);
+    var content = await factory.BuildSeriesContentAsync(context, credential, categoryId, offset, limit);
+
+    return Results.Json(new MsxServiceResponse
+    {
+        Response = new MsxResponseEnvelope { Status = 200, Text = "OK", Data = content }
+    }, MsxJson.Options);
 });
 
 // Lista completa de categorias de series (destino do "Mais categorias").
@@ -529,6 +577,24 @@ static async Task<string?> ReadParameterAsync(HttpContext context, string name)
     }
 
     return null;
+}
+
+/// <summary>
+/// Le "offset" e "limit" da query do content service (o Paging Plugin do MSX
+/// pede a proxima pagina de cartazes assim). O limit tem teto para nao
+/// estourar o tamanho da resposta.
+/// </summary>
+static (int Offset, int Limit) ReadPaging(HttpContext context, int defaultLimit = 16)
+{
+    var offset = int.TryParse(context.Request.Query["offset"], out var parsedOffset)
+        ? Math.Max(0, parsedOffset)
+        : 0;
+
+    var limit = int.TryParse(context.Request.Query["limit"], out var parsedLimit)
+        ? Math.Clamp(parsedLimit, 1, 100)
+        : defaultLimit;
+
+    return (offset, limit);
 }
 
 static MsxContent BuildHelpContent(HttpContext context) => new()

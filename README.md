@@ -10,7 +10,7 @@ as telas de conteúdo — tudo gerado a partir do provedor, em tempo real.
 |---|------|----------|
 | 1 | **Início** | 3 cards: Canais ao vivo / Filmes e VOD / Séries e episódios |
 | 2 | **Canais** | Coluna nativa do app com **todas as categorias de TV** + lista de canais no estilo *Channel List* do MSX (logo, nome, **programa no ar**, horário e barra de progresso) |
-| 3 | **Filmes** | Barra lateral de categorias à esquerda + grade de pôsteres verticais à direita; rolar para baixo carrega mais filmes → reproduz (`/movie/….mp4`) |
+| 3 | **Filmes** | Coluna nativa do app com **todas as categorias de filmes** + grade de pôsteres verticais que **carrega mais ao rolar** (Paging Plugin) → reproduz (`/movie/….mp4`) |
 | 4 | **Séries** | Mesmo desenho da tela de Filmes → página de episódios (`S01E01 - …`) → reproduz (`/series/….mp4`) |
 
 O menu lateral (coluna da esquerda) traz `Início`, `Canais`, `Filmes`, `Séries` e todas as
@@ -51,38 +51,57 @@ igual ao demo *Channel List* do MSX:
   título e descrição chegam em base64 e são decodificados pelo app.
 - Canais sem EPG no provedor ficam sem programa (e o serviço tenta de novo em 1 hora).
 
-## Navegador no estilo XCIPTV (Filmes e Séries)
+## Filmes e Séries: coluna nativa + Paging Plugin
 
-As telas 3 e 4 usam a **grade comprimida do MSX** (`compress: true` → 16×8 em vez de 12×6)
-e um Content Root do tipo `list`, montado com `pages` posicionadas à mão:
+As telas 3 e 4 **não usam a barra lateral dentro do conteúdo**: as categorias ficam na
+**coluna nativa do app** (o menu do MSX, que rola e mostra todas — 36 categorias de filmes
+e 35 de séries no provedor atual), e o conteúdo abre em tela cheia com a grade de cartazes.
+O card "Filmes e VOD" do Início abre esse menu (`menu:{host}/msx/menu/vod.json`).
+
+O carregamento das capas é feito pelo **Paging Plugin** do MSX (o mesmo da seção
+"página de plugin" da documentação do MSX):
 
 ```
-┌──────────────┬────────────────────────────────────┐
-│ 0,0  4 cols  │  cartaz 4,0  6,0  8,0 10,0 12,0 14,0│ ← 6 cartazes (2×4)
-│ 0,1  4 cols  │                                    │
-│ 0,2  ...     │  cartaz 4,4  6,4  8,4 10,0 12,0 14,0│ ← 6 cartazes
-│ 0,7  4 cols  │                                    │
-└──────────────┴────────────────────────────────────┘
-   categorias            pôsteres (proporção vertical)
+┌──────────────┬─────────────────────────────────────────┐
+│  Filmes      │  cartaz  cartaz  cartaz  cartaz  …      │ ← 8 cartazes (2×4)
+│ Mais Assist. │                                         │
+│ Lancamentos  │  cartaz  cartaz  cartaz  cartaz  …      │
+│ 4K           │                                         │
+│  …           │                                         │
+└──────────────┴─────────────────────────────────────────┘
+   categorias                pôsteres (proporção vertical)
 ```
 
-- **Barra lateral (colunas 0–3)**: **uma coluna** de categorias. Como a grade do
-  MSX tem só 8 linhas, cabem 8 categorias por página — então a coluna é montada
-  assim: a **categoria ativa fica fixa no topo** (destacada em `msx-blue`), as
-  demais entram numa **janela que avança a cada página rolada** (6 por página) e a
-  última vaga é **“Mais categorias”**, que abre a lista completa com todas as
-  categorias do provedor.
-- **Grade de Filmes/Séries (colunas 4–15)**: 6 cartazes por linha × 2 linhas = **12 por
-  página**. Cada cartaz ocupa 2 colunas × 4 linhas; com o item do tipo `separate`, 3 linhas
-  são de imagem (240×405 px em 1080p — proporção de poster vertical) e 1 linha é a
-  faixa do título.
-- **Scroll vertical**: o tipo `list` empilha as páginas na vertical. Cada página
-  seguinte traz mais conteúdo da mesma categoria (e a janela da barra lateral
-  anda junto), então navegar para baixo carrega conteúdo novo.
-- A tela abre focando o primeiro item da área de conteúdo (e não a barra lateral).
+- **O menu** (`/msx/menu/vod.json` e `/msx/menu/series.json`) tem um item por categoria.
+  O `data` de cada item é uma ação do plugin:
 
-O limite de itens por tela é `MaxPosterItems` (padrão 672 → 56 páginas de 12 cartazes) para
-Filmes/Séries e `MaxChannelItems` (padrão 1200 → 300 páginas de 4 canais) para Canais.
+  ```
+  request:interaction:{host}/msx/service/vod/{id}.json?offset={OFFSET}&limit={LIMIT}|16@{plugin}
+  ```
+
+  > Atenção: no campo `data` de um item de menu **não** se usa o prefixo `content:` —
+  > `content:` é sintaxe de ação e o MSX trata o valor inteiro como URL (a tela fica
+  > "Data Load Error"). O formato do menu é `request:interaction:{DATA_ID}@{URL}`.
+
+- **O content service** (`/msx/service/vod/{id}.json` e `/msx/service/series/{id}.json`)
+  devolve uma página de cartazes no envelope do MSX:
+
+  ```json
+  {"response":{"status":200,"text":"OK","data":{ "type":"list", "template":{…}, "items":[…] }}}
+  ```
+
+  A primeira resposta precisa de `template` **e** `items`; as páginas seguintes só de `items`.
+- **A grade** usa a grade comprimida do MSX (`compress: true` → 16×8 em vez de 12×6) e um
+  Content Root do tipo `list` com `template` + `items` (sem `pages`). O template define o
+  cartaz (`type: separate`, `layout: "0,0,2,4"`, `imageFiller: cover`): 2 colunas × 4 linhas
+  por cartaz, com a última linha reservada para o título — proporção vertical de poster.
+  São **8 cartazes por linha × 2 linhas = 16 por página**.
+- **O scroll infinite** é do plugin: quando o último cartaz da página fica visível, ele pede
+  a próxima página (`offset+limit`) ao content service e recarrega o conteúdo. O cabeçalho
+  mostra o progresso (`Lancamentos (18/48)`) e o `extension` mostra o total da categoria
+  (`101 filmes`).
+- O limite de itens por categoria é `MaxPosterItems` (padrão 672). O `limit` de cada página
+  é `PagingLimit` (padrão 16 — uma página cheia da grade comprimida).
 
 ## A credencial vai no primeiro trecho da URL
 
@@ -122,11 +141,15 @@ e o `X-Forwarded-Proto` para montar as URLs públicas.
 | `GET /msx/content/live.json` | Tela 2 — Canais (lista no estilo *Channel List*) |
 | `GET /msx/content/live/{categoryId}.json` | Canais da categoria (mesma lista) |
 | `GET /msx/live/epg?stream_id=…` | Serviço de live data do MSX (programa no ar do canal) |
-| `GET /msx/content/vod.json` | Tela 3 — Filmes (navegador com barra lateral) |
-| `GET /msx/content/vod/{categoryId}.json` | Filmes da categoria (mesmo navegador) |
+| `GET /msx/content/vod.json` | Tela 3 — Filmes (primeira página de cartazes) |
+| `GET /msx/content/vod/{categoryId}.json` | Filmes da categoria (primeira página) |
+| `GET /msx/menu/vod.json` | Menu de filmes (coluna nativa do app com todas as categorias) |
+| `GET /msx/service/vod/{categoryId}.json?offset=…&limit=…` | Content service do Paging Plugin (filmes) |
 | `GET /msx/content/vod-categories.json` | Lista completa de categorias de filmes |
-| `GET /msx/content/series.json` | Tela 4 — Séries (navegador com barra lateral) |
-| `GET /msx/content/series/{categoryId}.json` | Séries da categoria (mesmo navegador) |
+| `GET /msx/content/series.json` | Tela 4 — Séries (primeira página de cartazes) |
+| `GET /msx/content/series/{categoryId}.json` | Séries da categoria (primeira página) |
+| `GET /msx/menu/series.json` | Menu de séries (coluna nativa do app com todas as categorias) |
+| `GET /msx/service/series/{categoryId}.json?offset=…&limit=…` | Content service do Paging Plugin (séries) |
 | `GET /msx/content/series-categories.json` | Lista completa de categorias de séries |
 | `GET /msx/content/series-info/{seriesId}.json` | Episódios da série |
 | `GET /player_api.php` | API Xtream Codes padrão (veja abaixo) |
@@ -228,10 +251,11 @@ Para gerar esse payload com dados reais, rode o app e pegue `/msx/preview.json`
 (menu compacto, com o conteúdo embutido — não depende de fetch) ou `/msx/preview`
 (que já monta a página com o iframe do MSX).
 
-No preview, os cards do Início usam `content:json:{BASE64}` (JSON inline na ação), então
-dá para navegar entre as telas sem servidor. Já as URLs de stream (`http://<servidor>/…`)
-são HTTP: no navegador em HTTPS o mixed content bloqueia a reprodução — **na TV funciona**,
-porque o app MSX roda em contexto local.
+No preview, o card de Canais do Início usa `content:json:{BASE64}` (JSON inline na ação),
+então dá para navegar na lista de canais sem servidor. Os cards de Filmes e Séries abrem o
+menu nativo (`menu:{host}/msx/menu/vod.json`), que precisa do servidor no ar. Já as URLs de
+stream (`http://<servidor>/…`) são HTTP: no navegador em HTTPS o mixed content bloqueia a
+reprodução — **na TV funciona**, porque o app MSX roda em contexto local.
 
 ## Configuração (`appsettings.json`)
 
@@ -251,7 +275,9 @@ provedor entram por variável de ambiente (ver abaixo) ou pelo arquivo de secret
   "DefaultSeriesCategory": "3178",
   "DefaultLiveCategory": "1",
   "MaxPosterItems": 672,
-  "MaxChannelItems": 1200
+  "MaxChannelItems": 1200,
+  "PagingPluginUrl": "http://msx.benzac.de/interaction/paging.html",
+  "PagingLimit": 16
 }
 ```
 
@@ -272,8 +298,16 @@ provedor entram por variável de ambiente (ver abaixo) ou pelo arquivo de secret
   host do painel (`BaseUrl`).
 - `PlaybackBaseUrl` — base fixa das URLs de playback; tem prioridade sobre o
   `server_info`. Vazio = usar o `server_info`.
-- `MaxPosterItems` — teto de cartazes por tela de Filmes/Séries (padrão 672 → 56 páginas de 12 cartazes; o MSX aceita no máximo 1024 páginas no tipo `list` e 256 itens por página).
+- `MaxPosterItems` — teto de cartazes por categoria de Filmes/Séries (padrão 672).
 - `MaxChannelItems` — teto de canais por tela de Canais (padrão 1200 → 150 páginas de 8 canais).
+- `PagingPluginUrl` — página do plugin do MSX que carrega as capas sob demanda (padrão:
+  a oficial, `http://msx.benzac.de/interaction/paging.html`). Se sair do ar, aponte para uma
+  cópia servida pelo próprio app — o app só precisa que a página carregue o plugin oficial
+  de `paging.js`.
+  > **Mantenha em `http://`**: o `paging.js` reescreve `http://` por `https://` na URL do
+  > content service quando a **página do plugin** é carregada por HTTPS. Como o app é
+  > servido em HTTP (o provedor só serve HTTP), uma URL de plugin em HTTPS quebraria o
+  > carregamento das capas.
 - `CategoriesCacheMinutes` — minutos de cache da lista de categorias (padrão 5). O
   provedor **cria, renomeia e apaga** as categorias de evento ao longo do dia
   (ex.: `Canais | Jogos do dia` → `Canais | Eventos de Hoje`, com os canais
@@ -365,9 +399,11 @@ docker run -p 8080:8080 -e Xtream__PublicBaseUrl=http://<usuario>-<senha>.localh
 - No MSX, `items` na raiz do Content Root **exige** `template` — sem isso o MSX ignora os
   itens em silêncio e mostra "Content Not Available".
 - As telas de Filmes e Séries usam `compress: true`, que troca a grade 12×6 pela 16×8
-  (25% menor por célula). É o que permite a barra lateral de categorias ao lado da grade
-  de cartazes com proporção vertical. A barra lateral e a grade são `pages` posicionadas à
-  mão (`layout: "x,y,w,h"`), não `template` + `items`.
+  (25% menor por célula). É o que permite 8 cartazes de proporção vertical por linha.
+  A grade é `template` + `items` (sem `pages`), porque o Paging Plugin precisa dos dois.
+- No campo `data` de um **item de menu**, a ação do Paging Plugin é
+  `request:interaction:{DATA_ID}@{URL}` — **sem** o prefixo `content:`. Com o prefixo, o
+  MSX trata o valor inteiro como URL e a tela fica em "Data Load Error".
 - O MSX só atualiza um campo que **veio no próprio item**: se `titleHeader`, `titleFooter`
   ou `progress` ficarem só no `template`, o update do EPG não aparece na tela.
 - O MSX chama o serviço de live data com **POST**, mantendo a query string (`?stream_id=…`)
