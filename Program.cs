@@ -22,6 +22,58 @@ builder.Services.AddHttpClient("xtream", client =>
 });
 
 builder.Services.Configure<XtreamOptions>(builder.Configuration.GetSection("Xtream"));
+
+// As bases do provedor e as credenciais ficam FORA do repositorio:
+//   - variaveis de ambiente (Docker/Easypanel): BASE_URL, FALLBACK_URL,
+//     PROXY_URL (e o padrao Xtream__Username / Xtream__Password);
+//   - arquivo local de secrets: %USERPROFILE%\.minimax\secrets\ehiptv-msx.json
+builder.Services.PostConfigure<XtreamOptions>(options =>
+{
+    var envBase = Environment.GetEnvironmentVariable("BASE_URL");
+    if (!string.IsNullOrWhiteSpace(envBase))
+    {
+        options.BaseUrl = envBase.Trim();
+    }
+
+    var envFallback = Environment.GetEnvironmentVariable("FALLBACK_URL");
+    if (!string.IsNullOrWhiteSpace(envFallback))
+    {
+        options.FallbackUrls = envFallback
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToArray();
+    }
+
+    var envProxy = Environment.GetEnvironmentVariable("PROXY_URL");
+    if (!string.IsNullOrWhiteSpace(envProxy))
+    {
+        options.ApiProxyUrl = envProxy.Trim();
+    }
+
+    var secrets = SecretsLoader.TryLoad();
+
+    if (secrets is not null)
+    {
+        if (string.IsNullOrWhiteSpace(options.BaseUrl))
+        {
+            options.BaseUrl = secrets.BaseUrl;
+        }
+
+        if (options.FallbackUrls.Length == 0)
+        {
+            options.FallbackUrls = secrets.FallbackUrls;
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Username))
+        {
+            options.Username = secrets.Username;
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Password))
+        {
+            options.Password = secrets.Password;
+        }
+    }
+});
 builder.Services.AddSingleton<CredentialResolver>();
 builder.Services.AddSingleton<XtreamClient>();
 builder.Services.AddSingleton<XtreamApiService>();
@@ -241,7 +293,10 @@ app.MapGet("/msx/diagnostico.json", async (HttpContext context, CredentialResolv
     // e a saida do servidor (nao o provedor).
     var outbound = new List<object>();
 
-    foreach (var url in new[] { "http://example.com", "https://www.google.com", "http://<provedor>/" })
+    var outboundUrls = new List<string> { "http://example.com", "https://www.google.com" };
+    outboundUrls.AddRange(xtream.CandidateBases().Select(baseUrl => baseUrl.TrimEnd('/') + "/"));
+
+    foreach (var url in outboundUrls)
     {
         var started = System.Diagnostics.Stopwatch.StartNew();
 

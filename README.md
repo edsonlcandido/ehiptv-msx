@@ -163,10 +163,13 @@ porque o app MSX roda em contexto local.
 
 ## Configuração (`appsettings.json`)
 
+**O repositório é público: nenhum endereço de provedor é versionado.** As bases do
+provedor entram por variável de ambiente (ver abaixo) ou pelo arquivo de secrets.
+
 ```json
 "Xtream": {
-  "BaseUrl": "http://<provedor>",
-  "FallbackUrls": [ "http://<provedor-alternativo>" ],
+  "BaseUrl": "",
+  "FallbackUrls": [],
   "ApiProxyUrl": "",
   "PublicBaseUrl": "",
   "PublicScheme": "http",
@@ -180,11 +183,12 @@ porque o app MSX roda em contexto local.
 }
 ```
 
-- `BaseUrl` — servidor Xtream Codes principal (usado para as chamadas ao `player_api.php`).
+- `BaseUrl` — servidor Xtream Codes principal. **Vem do ambiente** (`BASE_URL`).
 - `FallbackUrls` — outros domínios do mesmo provedor, tentados quando o principal
-  responde 404 (o provedor bloqueia o IP do servidor). Ex.: `["http://<provedor-alternativo>"]`.
-- `ApiProxyUrl` — relay opcional (ver acima).
-- `PublicBaseUrl` — URL pública do app (ex.: `https://ehiptv.seu-dominio.com`). Deixe
+  responde 404 (o provedor bloqueia o IP do servidor). **Vem do ambiente**
+  (`FALLBACK_URL`, separados por vírgula).
+- `ApiProxyUrl` — relay opcional (ver acima). **Vem do ambiente** (`PROXY_URL`).
+- `PublicBaseUrl` — URL pública do app (ex.: `http://ehiptv.seu-dominio.com`). Deixe
   vazio em dev (usa scheme+host da requisição). Em produção, atrás de proxy, o `Host`
   chega como `localhost:3000`; o app usa o `X-Forwarded-Host` e **reaplica o prefixo de
   credencial** na frente do host público.
@@ -199,10 +203,35 @@ porque o app MSX roda em contexto local.
 - `MaxPosterItems` — teto de itens por grade (o MSX aceita no máximo 56 páginas em
   `pages`, 56 × 12 = 672 itens).
 
-## Credenciais (fora do repositório)
+## Endereços do provedor (fora do repositório)
 
-O repositório é público: **nenhuma credencial é versionada**. O app lê um arquivo local de
-secrets (ou variáveis de ambiente):
+### Variáveis de ambiente (Docker / Easypanel)
+
+| Variável | O que é |
+|----------|---------|
+| `BASE_URL` | base do Xtream Codes (ex.: `http://provedor.exemplo.com`) |
+| `FALLBACK_URL` | bases alternativas, separadas por vírgula |
+| `PROXY_URL` | relay opcional do `player_api.php` |
+| `Xtream__Username` / `Xtream__Password` | credenciais (quando não vierem do arquivo de secrets) |
+
+Guarde um arquivo `.env` **fora do repositório** (ex.:
+`%USERPROFILE%\.minimax\secrets\ehiptv-msx.env`) e use no Docker:
+
+```bash
+docker run -p 8080:8080 \
+  --env-file /caminho/ehiptv-msx.env \
+  ehiptv-msx
+```
+
+```bash
+# ehiptv-msx.env (fora do repo)
+BASE_URL=http://provedor.exemplo.com
+FALLBACK_URL=http://outro.provedor.exemplo.com
+```
+
+### Arquivo de secrets (dev / servidor próprio)
+
+O app lê um arquivo local de secrets (ou variáveis de ambiente):
 
 - `EHIPTV_MSX_SECRETS_FILE` → caminho do arquivo
 - padrão no Windows: `%USERPROFILE%\.minimax\secrets\ehiptv-msx.json`
@@ -210,7 +239,8 @@ secrets (ou variáveis de ambiente):
 ```json
 {
   "xtream": {
-    "baseUrl": "http://<provedor>",
+    "baseUrl": "http://provedor.exemplo.com",
+    "fallbackUrls": [ "http://outro.provedor.exemplo.com" ],
     "username": "<usuario>",
     "password": "<senha>"
   }
@@ -240,7 +270,7 @@ docker run -p 8080:8080 -e Xtream__PublicBaseUrl=http://<usuario>-<senha>.localh
 - O provedor devolve `parent_id` como número em uns endpoints e como string em outros:
   `Models/FlexibleStringConverter.cs` aceita os dois.
 - URLs de playback no padrão IPTV Xtream Codes, com a base vinda do `server_info` do
-  `player_api.php` (ex.: `http://<provedor-alternativo>`):
+  `player_api.php`:
   - live: `{base}/live/{u}/{p}/{stream_id}.m3u8`
   - filme: `{base}/movie/{u}/{p}/{stream_id}.mp4`
   - série: `{base}/series/{u}/{p}/{episode_id}.mp4` (o `episode_id` vem de

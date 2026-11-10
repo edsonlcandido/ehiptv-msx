@@ -73,6 +73,7 @@ _ReSharper*/
 .env
 .env.local
 .env.*.local
+*.env
 
 # Credenciais do Xtream Codes (nunca versionar)
 appsettings.Local.json

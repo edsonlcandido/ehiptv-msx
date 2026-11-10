@@ -5,13 +5,17 @@ namespace ehiptv_msx.Services;
 /// <summary>Opcoes de configuracao do app (appsettings.json).</summary>
 public sealed class XtreamOptions
 {
-    /// <summary>Base do Xtream Codes (ex.: http://<provedor>).</summary>
-    public string BaseUrl { get; set; } = "http://<provedor>";
+    /// <summary>
+    /// Base do Xtream Codes. Vem de fora do repo: variavel de ambiente
+    /// "BASE_URL" (ou "Xtream__BaseUrl") ou do arquivo de secrets.
+    /// </summary>
+    public string BaseUrl { get; set; } = string.Empty;
 
     /// <summary>
     /// Bases alternativas do Xtream Codes, tentadas em ordem quando a principal
     /// falha. Alguns provedores bloqueiam o IP do servidor (a resposta é 404):
     /// com um segundo dominio do mesmo provedor o app volta a funcionar.
+    /// Vem da variavel de ambiente "FALLBACK_URL" (separada por virgula).
     /// </summary>
     public string[] FallbackUrls { get; set; } = [];
 
@@ -64,8 +68,8 @@ public sealed class XtreamOptions
     public bool UseServerInfo { get; set; } = true;
 
     /// <summary>
-    /// Base fixa das URLs de playback (ex.: http://<provedor>). Vazio = usa o
-    /// "server_info" do player_api.php.
+    /// Base fixa das URLs de playback. Vazio = usa o "server_info" do
+    /// player_api.php.
     /// </summary>
     public string? PlaybackBaseUrl { get; set; }
 
@@ -112,9 +116,10 @@ public sealed class CredentialResolver
     {
         _options = options.Value;
 
-        var fromSecrets = SecretsLoader.TryLoad();
-        var user = string.IsNullOrWhiteSpace(_options.Username) ? fromSecrets?.Username : _options.Username;
-        var pass = string.IsNullOrWhiteSpace(_options.Password) ? fromSecrets?.Password : _options.Password;
+        // As opcoes ja vem mescladas com o ambiente e com o arquivo de
+        // secrets (ver Program.cs): aqui so falta montar o fallback local.
+        var user = _options.Username;
+        var pass = _options.Password;
 
         if (!string.IsNullOrWhiteSpace(user) && !string.IsNullOrWhiteSpace(pass))
         {
@@ -219,15 +224,20 @@ public sealed class CredentialResolver
 }
 
 /// <summary>
-/// Le o arquivo local de secrets (fora do repositorio) com as credenciais de
-/// fallback. Caminho: variavel de ambiente EHIPTV_MSX_SECRETS_FILE ou, no
-/// Windows, %USERPROFILE%\.minimax\secrets\ehiptv-msx.json
+/// Secrets do Xtream Codes lidos de um arquivo local (fora do repositorio).
+/// </summary>
+public sealed record XtreamSecrets(string BaseUrl, string Username, string Password, string[] FallbackUrls);
+
+/// <summary>
+/// Le o arquivo local de secrets (fora do repositorio) com as credenciais e as
+/// bases do provedor. Caminho: variavel de ambiente EHIPTV_MSX_SECRETS_FILE ou,
+/// no Windows, %USERPROFILE%\.minimax\secrets\ehiptv-msx.json
 /// </summary>
 public static class SecretsLoader
 {
     public const string EnvVar = "EHIPTV_MSX_SECRETS_FILE";
 
-    public static XtreamCredential? TryLoad()
+    public static XtreamSecrets? TryLoad()
     {
         var path = Environment.GetEnvironmentVariable(EnvVar);
 
@@ -252,16 +262,17 @@ public static class SecretsLoader
                 root = xtream;
             }
 
-            var baseUrl = GetString(root, "baseUrl") ?? "http://<provedor>";
+            var baseUrl = GetString(root, "baseUrl") ?? string.Empty;
             var user = GetString(root, "username");
             var pass = GetString(root, "password");
+            var fallbacks = GetStringArray(root, "fallbackUrls");
 
             if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass))
             {
                 return null;
             }
 
-            return new XtreamCredential(baseUrl, user!, pass!);
+            return new XtreamSecrets(baseUrl, user!, pass!, fallbacks);
         }
         catch (Exception ex)
         {
@@ -274,4 +285,19 @@ public static class SecretsLoader
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
+
+    private static string[] GetStringArray(JsonElement element, string name)
+    {
+        if (!element.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return value.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.String)
+            .Select(item => item.GetString())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item!.Trim())
+            .ToArray();
+    }
 }

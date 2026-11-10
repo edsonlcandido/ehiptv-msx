@@ -74,10 +74,10 @@ public sealed class XtreamClient
     /// <summary>
     /// Base das URLs de playback no padrao IPTV Xtream Codes.
     ///
-    /// A base vem do "server_info" devolvido pelo player_api.php
-    /// (ex.: http://<provedor-alternativo>) - e nao do host do painel - porque e o
-    /// endereco que o proprio provedor publica para os clientes. Se o
-    /// server_info nao estiver disponivel, cai no host configurado.
+    /// A base vem do "server_info" devolvido pelo player_api.php - e nao do
+    /// host do painel - porque e o endereco que o proprio provedor publica
+    /// para os clientes. Se o server_info nao estiver disponivel, cai no host
+    /// configurado.
     /// </summary>
     public async Task<string> ResolvePlaybackBaseAsync(XtreamCredential credential)
     {
