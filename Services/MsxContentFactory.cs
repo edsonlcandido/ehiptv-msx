@@ -448,7 +448,7 @@ public sealed class MsxContentFactory
     /// </summary>
     private string BaseUrl(HttpContext context)
     {
-        var scheme = CredentialResolver.PublicScheme(context);
+        var scheme = CredentialResolver.PublicScheme(context, _options.PublicScheme);
         var publicHost = CredentialResolver.PublicHost(context);
         var hostAndPort = publicHost;
         var publicUrl = _options.PublicBaseUrl?.TrimEnd('/');
@@ -469,6 +469,13 @@ public sealed class MsxContentFactory
             hostAndPort = prefix is not null && !configuredHost.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
                 ? $"{prefix}.{configuredHost}"
                 : configuredHost;
+        }
+
+        // O esquema configurado tem a ultima palavra: o provedor so serve
+        // HTTP e HTTPS aqui daria mixed content no navegador.
+        if (!string.IsNullOrWhiteSpace(_options.PublicScheme))
+        {
+            scheme = _options.PublicScheme.Trim();
         }
 
         return $"{scheme}://{hostAndPort}";

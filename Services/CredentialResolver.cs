@@ -30,6 +30,14 @@ public sealed class XtreamOptions
     /// </summary>
     public string? PublicBaseUrl { get; set; }
 
+    /// <summary>
+    /// Esquema das URLs geradas ("http" ou "https"). Padrao "http": o
+    /// provedor so serve HTTP, e um app em HTTPS carregando conteudo HTTP
+    /// cai no bloqueio de mixed content do navegador.
+    /// Vazio = usa o esquema da requisicao.
+    /// </summary>
+    public string? PublicScheme { get; set; } = "http";
+
     /// <summary>Categoria usada na tela inicial de Filmes.</summary>
     public string DefaultVodCategory { get; set; } = "25";
 
@@ -151,9 +159,18 @@ public sealed class CredentialResolver
         return context.Request.Host.Value ?? context.Request.Host.Host;
     }
 
-    /// <summary>Scheme publico (X-Forwarded-Proto tem prioridade sobre o do proxy).</summary>
-    public static string PublicScheme(HttpContext context)
+    /// <summary>
+    /// Scheme publico. A configuracao "PublicScheme" manda (o padrao e "http",
+    /// porque o provedor so serve HTTP e HTTPS no app daria mixed content);
+    /// depois vem o X-Forwarded-Proto e, por ultimo, o esquema da requisicao.
+    /// </summary>
+    public static string PublicScheme(HttpContext context, string? forced = null)
     {
+        if (!string.IsNullOrWhiteSpace(forced))
+        {
+            return forced.Trim();
+        }
+
         var forwarded = context.Request.Headers["X-Forwarded-Proto"].FirstOrDefault();
 
         if (!string.IsNullOrWhiteSpace(forwarded))

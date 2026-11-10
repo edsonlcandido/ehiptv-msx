@@ -9,6 +9,10 @@ var builder = WebApplication.CreateBuilder(args);
 // Query keys que nao sao repassadas para o player_api.php do provedor.
 string[] reservedQueryKeys = ["username", "password", "u", "p", "action"];
 
+// Esquema das URLs geradas. O padrao e "http": o provedor so serve HTTP e
+// servir o app em HTTPS cai no bloqueio de mixed content do navegador.
+string? publicScheme = builder.Configuration["Xtream:PublicScheme"];
+
 builder.Services.AddMemoryCache();
 
 builder.Services.AddHttpClient("xtream", client =>
@@ -349,8 +353,8 @@ app.Run();
 // Helpers
 // ---------------------------------------------------------------------------
 
-static string HelpUrl(HttpContext context) =>
-    $"{CredentialResolver.PublicScheme(context)}://{CredentialResolver.PublicHost(context)}/msx/ajuda.json";
+string HelpUrl(HttpContext context) =>
+    $"{CredentialResolver.PublicScheme(context, publicScheme)}://{CredentialResolver.PublicHost(context)}/msx/ajuda.json";
 
 static MsxContent BuildHelpContent(HttpContext context) => new()
 {

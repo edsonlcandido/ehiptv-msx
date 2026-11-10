@@ -130,9 +130,18 @@ Qualquer parâmetro que não seja credencial ou `action` é repassado ao provedo
    `<usuario>-<senha>.seu-dominio.com` (sem `http://`), o lock de segurança e confirme.
 4. O app carrega o catálogo e o usuário navega pelas telas.
 
-> Com wildcard DNS + TLS curinga, o prefixo de credencial funciona em qualquer rede.
+> Com wildcard DNS, o prefixo de credencial funciona em qualquer rede.
 > Sem wildcard, use o domínio fixo e passe a credencial via
 > `?u=…&p=…` (útil para links diretos, não para o Setup do app).
+
+## HTTP, e não HTTPS (de propósito)
+
+O provedor **só serve HTTP** (o `server_info` vem com `https_port: null` e o handshake
+TLS é recusado). Se o app MSX fosse servido em HTTPS, o navegador bloquearia as
+streams HTTP por *mixed content* — o player ficaria preto.
+
+Por isso o app gera **todas** as URLs em HTTP (`Xtream__PublicScheme: "http"`). Não
+aponte o domínio para um certificado HTTPS: em produção use `http://<usuario>-<senha>.dominio`.
 
 ## Testar sem servidor (site do MSX)
 
@@ -160,6 +169,7 @@ porque o app MSX roda em contexto local.
   "FallbackUrls": [ "http://<provedor-alternativo>" ],
   "ApiProxyUrl": "",
   "PublicBaseUrl": "",
+  "PublicScheme": "http",
   "UseServerInfo": true,
   "PlaybackBaseUrl": "",
   "DefaultVodCategory": "25",
@@ -178,6 +188,9 @@ porque o app MSX roda em contexto local.
   vazio em dev (usa scheme+host da requisição). Em produção, atrás de proxy, o `Host`
   chega como `localhost:3000`; o app usa o `X-Forwarded-Host` e **reaplica o prefixo de
   credencial** na frente do host público.
+- `PublicScheme` — esquema das URLs geradas. **Padrão `http`** (o provedor só serve
+  HTTP; servir o app em HTTPS daria mixed content e o player não reproduz). Vazio = usa
+  o esquema da requisição.
 - `UseServerInfo` — deriva a base das URLs de playback do `server_info` devolvido pelo
   `player_api.php` (padrão IPTV Xtream Codes). Desligue (`false`) para usar sempre o
   host do painel (`BaseUrl`).
