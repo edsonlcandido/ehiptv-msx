@@ -1,4 +1,3 @@
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ehiptv_msx.Models;
@@ -11,6 +10,9 @@ namespace ehiptv_msx.Services;
 /// Cliente do Xtream Codes (player_api.php). Fala direto com o provedor,
 /// guarda as respostas em cache (o catalogo nao muda a cada request) e nunca
 /// loga usuario/senha.
+///
+/// O cache guarda o JSON bruto: cada requisicao desserializa uma copia nova,
+/// assim nenhum chamador consegue alterar o que ficou guardado em cache.
 /// </summary>
 public sealed class XtreamClient
 {
@@ -30,15 +32,18 @@ public sealed class XtreamClient
     private readonly IHttpClientFactory _httpFactory;
     private readonly IMemoryCache _cache;
     private readonly ILogger<XtreamClient> _logger;
+    private readonly XtreamOptions _options;
 
     public XtreamClient(
         IHttpClientFactory httpFactory,
         IMemoryCache cache,
-        ILogger<XtreamClient> logger)
+        ILogger<XtreamClient> logger,
+        IOptions<XtreamOptions> options)
     {
         _httpFactory = httpFactory;
         _cache = cache;
         _logger = logger;
+        _options = options.Value;
     }
 
     public Task<List<XtreamCategory>> GetCategoriesAsync(XtreamCredential credential, string kind) =>
@@ -56,16 +61,92 @@ public sealed class XtreamClient
     public Task<XtreamSeriesInfo?> GetSeriesInfoAsync(XtreamCredential credential, string seriesId) =>
         GetAsync<XtreamSeriesInfo>(credential, "get_series_info", $"series_id={seriesId}", TimeSpan.FromMinutes(30));
 
+    /// <summary>
+    /// Informacoes da conta e do servidor (player_api.php sem "action"). E daqui
+    /// que sai a base das URLs de playback.
+    /// </summary>
+    public Task<XtreamAuthResponse?> GetServerInfoAsync(XtreamCredential credential) =>
+        GetAsync<XtreamAuthResponse>(credential, null, null, TimeSpan.FromMinutes(30));
+
+    /// <summary>
+    /// Base das URLs de playback no padrao IPTV Xtream Codes.
+    ///
+    /// A base vem do "server_info" devolvido pelo player_api.php
+    /// (ex.: http://<provedor-alternativo>) - e nao do host do painel - porque e o
+    /// endereco que o proprio provedor publica para os clientes. Se o
+    /// server_info nao estiver disponivel, cai no host configurado.
+    /// </summary>
+    public async Task<string> ResolvePlaybackBaseAsync(XtreamCredential credential)
+    {
+        if (!string.IsNullOrWhiteSpace(_options.PlaybackBaseUrl))
+        {
+            return _options.PlaybackBaseUrl!.TrimEnd('/');
+        }
+
+        if (!_options.UseServerInfo)
+        {
+            return credential.BaseUrl.TrimEnd('/');
+        }
+
+        var serverInfo = (await GetServerInfoAsync(credential))?.ServerInfo;
+
+        if (serverInfo is null || string.IsNullOrWhiteSpace(serverInfo.Url))
+        {
+            return credential.BaseUrl.TrimEnd('/');
+        }
+
+        return BuildServerBase(serverInfo);
+    }
+
+    /// <summary>
+    /// Monta "scheme://host[:port]" a partir do server_info. A porta padrao
+    /// da esquema e omitida (http/80 e https/443).
+    /// </summary>
+    public static string BuildServerBase(XtreamServerInfo serverInfo)
+    {
+        var host = (serverInfo.Url ?? string.Empty).Trim().Trim('/');
+
+        if (host.Contains("://", StringComparison.Ordinal))
+        {
+            var parsed = new Uri(host);
+            host = parsed.Host;
+        }
+
+        var scheme = string.IsNullOrWhiteSpace(serverInfo.HttpsPort) ? "http" : "https";
+        var port = scheme == "https" ? serverInfo.HttpsPort : serverInfo.Port;
+
+        var defaultPort = scheme == "https" ? "443" : "80";
+        var hasPort = !string.IsNullOrWhiteSpace(port) && port != defaultPort;
+
+        return hasPort ? $"{scheme}://{host}:{port}" : $"{scheme}://{host}";
+    }
+
     /// <summary>URL completa do player_api.php (usada no diagnostico e no proxy).</summary>
-    public static string BuildUrl(XtreamCredential credential, string action, string? extra = null)
+    public static string BuildUrl(XtreamCredential credential, string? action, string? extra = null)
     {
         var url = $"{credential.BaseUrl.TrimEnd('/')}/player_api.php" +
                   $"?username={Uri.EscapeDataString(credential.Username)}" +
-                  $"&password={Uri.EscapeDataString(credential.Password)}" +
-                  $"&action={action}";
+                  $"&password={Uri.EscapeDataString(credential.Password)}";
+
+        if (!string.IsNullOrWhiteSpace(action))
+        {
+            url += $"&action={action}";
+        }
 
         return extra is null ? url : $"{url}&{extra}";
     }
+
+    /// <summary>
+    /// JSON bruto do player_api.php para uma acao (cache de 30 min para o
+    /// server_info, 5 min para as listas). Usado pelo endpoint /player_api.php
+    /// para repassar a resposta no padrao do provedor.
+    /// </summary>
+    public Task<string?> GetRawAsync(
+        XtreamCredential credential,
+        string? action,
+        string? extra = null,
+        TimeSpan? ttl = null) =>
+        GetRawCoreAsync(credential, action, extra, ttl ?? TimeSpan.FromMinutes(5));
 
     private async Task<List<T>> GetListAsync<T>(
         XtreamCredential credential,
@@ -79,15 +160,39 @@ public sealed class XtreamClient
 
     private async Task<T?> GetAsync<T>(
         XtreamCredential credential,
-        string action,
+        string? action,
+        string? extra,
+        TimeSpan ttl)
+    {
+        var raw = await GetRawCoreAsync(credential, action, extra, ttl);
+
+        if (raw is null)
+        {
+            return default;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<T>(raw, JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Falha ao desserializar o Xtream Codes (action={Action}).", action ?? "(default)");
+            return default;
+        }
+    }
+
+    private async Task<string?> GetRawCoreAsync(
+        XtreamCredential credential,
+        string? action,
         string? extra,
         TimeSpan ttl)
     {
         var cacheKey = $"xtream:{credential.Username}:{action}:{extra}";
 
-        if (_cache.TryGetValue(cacheKey, out var cached) && cached is T typed)
+        if (_cache.TryGetValue(cacheKey, out var cached) && cached is string raw)
         {
-            return typed;
+            return raw;
         }
 
         var url = BuildUrl(credential, action, extra);
@@ -98,14 +203,14 @@ public sealed class XtreamClient
             using var response = await client.GetAsync(url);
             response.EnsureSuccessStatusCode();
 
-            var value = await response.Content.ReadFromJsonAsync<T>(JsonOptions);
-            _cache.Set(cacheKey, value, ttl);
-            return value;
+            var body = await response.Content.ReadAsStringAsync();
+            _cache.Set(cacheKey, body, ttl);
+            return body;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Falha ao consultar o Xtream Codes (action={Action}).", action);
-            return default;
+            _logger.LogError(ex, "Falha ao consultar o Xtream Codes (action={Action}).", action ?? "(default)");
+            return null;
         }
     }
 }

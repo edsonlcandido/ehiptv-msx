@@ -52,12 +52,38 @@ Ordem de resolução da credencial (`Services/CredentialResolver.cs`):
 | `GET /msx/{u}/{p}/content/series.json` | Tela 4 — Séries |
 | `GET /msx/{u}/{p}/content/series/{categoryId}.json` | Séries da categoria |
 | `GET /msx/{u}/{p}/content/series-info/{seriesId}.json` | Episódios da série |
+| `GET /player_api.php` | API Xtream Codes padrão (veja abaixo) |
 | `GET /msx/preview` | Preview no `msx.benzac.de` com o JSON em base64 |
 | `GET /msx/preview.json` | Menu compacto (JSON autocontido) |
 | `GET /health` | Health check |
 
 Todas as respostas JSON devolvem `Access-Control-Allow-Origin` echoing a origem +
 `Access-Control-Allow-Credentials` (o MSX usa `withCredentials=true`).
+
+## O app também é um servidor Xtream Codes padrão
+
+Além das telas do MSX, a aplicação expõe a **API do Xtream Codes** (`player_api.php`)
+no padrão de IPTV, com o mesmo usuário e senha:
+
+```
+GET /player_api.php?username=<usuario>&password=<senha>
+GET /player_api.php?username=<usuario>&password=<senha>&action=get_live_categories
+GET /player_api.php?username=<usuario>&password=<senha>&action=get_live_streams&category_id=1
+GET /player_api.php?username=<usuario>&password=<senha>&action=get_vod_categories
+GET /player_api.php?username=<usuario>&password=<senha>&action=get_vod_streams&category_id=25
+GET /player_api.php?username=<usuario>&password=<senha>&action=get_vod_info&vod_id=443784
+GET /player_api.php?username=<usuario>&password=<senha>&action=get_series_categories
+GET /player_api.php?username=<usuario>&password=<senha>&action=get_series&category_id=3178
+GET /player_api.php?username=<usuario>&password=<senha>&action=get_series_info&series_id=10640
+```
+
+A resposta é a do provedor, com o `direct_source` de cada item preenchido no padrão
+Xtream Codes (`{base}/live|movie|series/{usuario}/{senha}/{id}.{ext}`). Isso permite
+apontar qualquer player de IPTV (TiviMate, IPTV Smarters, Perfect Player) para o
+próprio domínio, com o mesmo usuário e senha.
+
+Qualquer parâmetro que não seja credencial ou `action` é repassado ao provedor
+(`category_id`, `series_id`, `vod_id`, `stream_id`, `limit`…).
 
 ## Instalar no app MSX (TV / desktop)
 
@@ -86,7 +112,7 @@ Para gerar esse payload com dados reais, rode o app e pegue `/msx/preview.json`
 (que já monta a página com o iframe do MSX).
 
 No preview, os cards do Início usam `content:json:{BASE64}` (JSON inline na ação), então
-dá para navegar entre as telas sem servidor. Já as URLs de stream (`http://<provedor>/…`)
+dá para navegar entre as telas sem servidor. Já as URLs de stream (`http://<servidor>/…`)
 são HTTP: no navegador em HTTPS o mixed content bloqueia a reprodução — **na TV funciona**,
 porque o app MSX roda em contexto local.
 
@@ -96,6 +122,8 @@ porque o app MSX roda em contexto local.
 "Xtream": {
   "BaseUrl": "http://<provedor>",
   "PublicBaseUrl": "",
+  "UseServerInfo": true,
+  "PlaybackBaseUrl": "",
   "DefaultVodCategory": "25",
   "DefaultSeriesCategory": "3178",
   "PosterItemsPerPage": 12,
@@ -104,11 +132,16 @@ porque o app MSX roda em contexto local.
 }
 ```
 
-- `BaseUrl` — servidor Xtream Codes.
+- `BaseUrl` — servidor Xtream Codes (usado para as chamadas ao `player_api.php`).
 - `PublicBaseUrl` — URL pública do app (ex.: `https://ehiptv.seu-dominio.com`). Deixe
   vazio em dev (usa scheme+host da requisição). Em produção, atrás de proxy, o `Host`
   chega como `localhost:3000`; o app usa o `PublicBaseUrl` e **reaplica o prefixo de
   credencial** do host original na frente do host público.
+- `UseServerInfo` — deriva a base das URLs de playback do `server_info` devolvido pelo
+  `player_api.php` (padrão IPTV Xtream Codes). Desligue (`false`) para usar sempre o
+  host do painel (`BaseUrl`).
+- `PlaybackBaseUrl` — base fixa das URLs de playback; tem prioridade sobre o
+  `server_info`. Vazio = usar o `server_info`.
 - `MaxPosterItems` — teto de itens por grade (o MSX aceita no máximo 56 páginas em
   `pages`, 56 × 12 = 672 itens).
 
@@ -152,14 +185,19 @@ docker run -p 8080:8080 -e Xtream__PublicBaseUrl=http://<usuario>-<senha>.localh
 
 - O provedor devolve `parent_id` como número em uns endpoints e como string em outros:
   `Models/FlexibleStringConverter.cs` aceita os dois.
-- URLs de playback (mesma base do provedor):
+- URLs de playback no padrão IPTV Xtream Codes, com a base vinda do `server_info` do
+  `player_api.php` (ex.: `http://<provedor-alternativo>`):
   - live: `{base}/live/{u}/{p}/{stream_id}.m3u8`
   - filme: `{base}/movie/{u}/{p}/{stream_id}.mp4`
   - série: `{base}/series/{u}/{p}/{episode_id}.mp4` (o `episode_id` vem de
     `get_series_info`, **não** `series_id/season/episode`)
+  - No `player_api.php` do próprio app, o `direct_source` usa a mesma base com `.ts`
+    para live e a extensão do contentor nos demais.
 - As capas vêm de `http://lgfp.one` (Cloudflare). O app força `https` nessas URLs para
   o preview no navegador não sofrer mixed content.
 - Catálogo grande (44 mil filmes, 10 mil séries, 2.736 canais): as respostas do
-  `player_api.php` ficam em cache (categorias 30 min, listas 5 min).
+  `player_api.php` ficam em cache (categorias 30 min, listas 5 min, `server_info` 30 min).
+  O cache guarda o JSON bruto e cada requisição desserializa uma cópia, para nenhum
+  chamador alterar o que ficou guardado.
 - No MSX, `items` na raiz do Content Root **exige** `template` — sem isso o MSX ignora os
   itens em silêncio e mostra "Content Not Available".

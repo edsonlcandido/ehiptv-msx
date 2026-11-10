@@ -184,6 +184,93 @@ public sealed class XtreamEpisode
     public XtreamEpisodeInfo? Info { get; set; }
 }
 
+/// <summary>
+/// Resposta padrao do player_api.php (sem "action"): informacoes da conta e
+/// do servidor. O "server_info" e a origem da base das URLs de playback no
+/// padrao IPTV Xtream Codes.
+/// </summary>
+public sealed class XtreamAuthResponse
+{
+    [JsonPropertyName("user_info")]
+    public XtreamUserInfo? UserInfo { get; set; }
+
+    [JsonPropertyName("server_info")]
+    public XtreamServerInfo? ServerInfo { get; set; }
+}
+
+public sealed class XtreamUserInfo
+{
+    [JsonPropertyName("username")]
+    public string? Username { get; set; }
+
+    [JsonPropertyName("password")]
+    public string? Password { get; set; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
+
+    [JsonPropertyName("auth")]
+    public int Auth { get; set; }
+
+    [JsonPropertyName("status")]
+    public string? Status { get; set; }
+
+    [JsonPropertyName("exp_date")]
+    public string? ExpDate { get; set; }
+
+    [JsonPropertyName("is_trial")]
+    public string? IsTrial { get; set; }
+
+    [JsonPropertyName("active_cons")]
+    public string? ActiveCons { get; set; }
+
+    [JsonPropertyName("created_at")]
+    public string? CreatedAt { get; set; }
+
+    [JsonPropertyName("max_connections")]
+    public string? MaxConnections { get; set; }
+
+    [JsonPropertyName("allowed_output_formats")]
+    public List<string>? AllowedOutputFormats { get; set; }
+}
+
+/// <summary>
+/// "server_info" do player_api.php. "url" + "port" + "server_protocol" formam
+/// a base das URLs de playback no padrao IPTV Xtream Codes.
+/// </summary>
+public sealed class XtreamServerInfo
+{
+    [JsonPropertyName("url")]
+    public string? Url { get; set; }
+
+    [JsonPropertyName("port")]
+    public string? Port { get; set; }
+
+    [JsonPropertyName("https_port")]
+    public string? HttpsPort { get; set; }
+
+    [JsonPropertyName("server_protocol")]
+    public string? ServerProtocol { get; set; }
+
+    [JsonPropertyName("rtmp_port")]
+    public string? RtmpPort { get; set; }
+
+    [JsonPropertyName("timezone")]
+    public string? Timezone { get; set; }
+
+    [JsonPropertyName("time_now")]
+    public string? TimeNow { get; set; }
+
+    [JsonPropertyName("timestamp_now")]
+    public long TimestampNow { get; set; }
+
+    [JsonPropertyName("version")]
+    public string? Version { get; set; }
+
+    [JsonPropertyName("xui")]
+    public bool Xui { get; set; }
+}
+
 public sealed class XtreamEpisodeInfo
 {
     [JsonPropertyName("title")]

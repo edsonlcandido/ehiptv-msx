@@ -33,6 +33,19 @@ public sealed class XtreamOptions
     /// <summary>Limite de canais exibidos em uma categoria.</summary>
     public int MaxChannelItems { get; set; } = 1200;
 
+    /// <summary>
+    /// Deriva a base das URLs de playback do "server_info" devolvido pelo
+    /// player_api.php (padrao IPTV Xtream Codes). Desligue com
+    /// Xtream__UseServerInfo=false para usar sempre o host do painel.
+    /// </summary>
+    public bool UseServerInfo { get; set; } = true;
+
+    /// <summary>
+    /// Base fixa das URLs de playback (ex.: http://<provedor>). Vazio = usa o
+    /// "server_info" do player_api.php.
+    /// </summary>
+    public string? PlaybackBaseUrl { get; set; }
+
     /// <summary>Usuario opcional (fora do repo: vem de secrets/env).</summary>
     public string? Username { get; set; }
 
@@ -52,7 +65,15 @@ public sealed record XtreamCredential(string BaseUrl, string Username, string Pa
 
     /// <summary>Versao com a base, para montar as URLs de playback.</summary>
     public string Base(string kind, string id, string? extension = null) =>
-        $"{BaseUrl.TrimEnd('/')}/{kind}/{Uri.EscapeDataString(Username)}/" +
+        BuildFrom(BaseUrl, kind, id, extension);
+
+    /// <summary>
+    /// URL de playback no padrao IPTV Xtream Codes
+    /// ("{base}/{live|movie|series}/{usuario}/{senha}/{id}.{ext}") com uma base
+    /// especifica (por exemplo, o "server_info" do player_api.php).
+    /// </summary>
+    public string BuildFrom(string baseUrl, string kind, string id, string? extension = null) =>
+        $"{baseUrl.TrimEnd('/')}/{kind}/{Uri.EscapeDataString(Username)}/" +
         $"{Uri.EscapeDataString(Password)}/{id}{(extension is null ? string.Empty : "." + extension)}";
 }
 

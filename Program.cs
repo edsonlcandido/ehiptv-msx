@@ -6,6 +6,9 @@ using ehiptv_msx.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Query keys que nao sao repassadas para o player_api.php do provedor.
+string[] reservedQueryKeys = ["username", "password", "u", "p", "action"];
+
 builder.Services.AddMemoryCache();
 
 builder.Services.AddHttpClient("xtream", client =>
@@ -17,6 +20,7 @@ builder.Services.AddHttpClient("xtream", client =>
 builder.Services.Configure<XtreamOptions>(builder.Configuration.GetSection("Xtream"));
 builder.Services.AddSingleton<CredentialResolver>();
 builder.Services.AddSingleton<XtreamClient>();
+builder.Services.AddSingleton<XtreamApiService>();
 builder.Services.AddSingleton<MsxContentFactory>();
 
 // CORS: o MSX busca o start.json/menu.json com withCredentials=true.
@@ -45,6 +49,54 @@ app.UseCors("MsxClients");
 app.MapGet("/", () => Results.Redirect("/msx/start.json"));
 
 app.MapGet("/health", () => Results.Json(new { ok = true }));
+
+// ---------------------------------------------------------------------------
+// player_api.php (padrao IPTV Xtream Codes)
+// ---------------------------------------------------------------------------
+
+// O proprio app serve a API do Xtream Codes: qualquer player de IPTV pode
+// apontar para este dominio com o mesmo usuario e senha. A resposta e a do
+// provedor, com o "direct_source" completo no padrao Xtream Codes.
+//
+//   /player_api.php?username=<usuario>&password=<senha>
+//   /player_api.php?username=<usuario>&password=<senha>&action=get_live_streams
+//   /player_api.php?username=<usuario>&password=<senha>&action=get_vod_streams&category_id=25
+//   /player_api.php?username=<usuario>&password=<senha>&action=get_series&category_id=3178
+//   /player_api.php?username=<usuario>&password=<senha>&action=get_series_info&series_id=123
+app.MapGet("/player_api.php", async (HttpContext context, CredentialResolver resolver, XtreamApiService api) =>
+{
+    var credential = resolver.Resolve(context);
+
+    if (!credential.HasCredentials)
+    {
+        return Results.Json(
+            new { user_info = new { auth = 0, status = "Unauthorized", message = "Informe usuario e senha." } },
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var action = context.Request.Query["action"].FirstOrDefault();
+
+    // Tudo que nao for credencial ou action vai para o provedor
+    // (category_id, series_id, vod_id, stream_id, limit...).
+    var forwarded = context.Request.Query
+        .Where(q => !reservedQueryKeys.Contains(q.Key))
+        .SelectMany(q => q.Value
+            .Where(v => v is not null)
+            .Select(v => $"{Uri.EscapeDataString(q.Key)}={Uri.EscapeDataString(v!)}"))
+        .ToArray();
+
+    var json = await api.HandleAsync(
+        credential, action, forwarded.Length == 0 ? null : string.Join("&", forwarded));
+
+    if (json is null)
+    {
+        return Results.Json(
+            new { error = "O provedor Xtream Codes nao respondeu." },
+            statusCode: StatusCodes.Status502BadGateway);
+    }
+
+    return Results.Content(json, "application/json; charset=utf-8");
+});
 
 // Start Object: MSX sempre busca em {SERVER}/msx/start.json.
 // A credencial vem da URL (path, query ou host usuario-senha.localhost).

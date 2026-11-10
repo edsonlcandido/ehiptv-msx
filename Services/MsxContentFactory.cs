@@ -191,6 +191,7 @@ public sealed class MsxContentFactory
         var categories = await _xtream.GetCategoriesAsync(credential, "live");
         var category = categories.FirstOrDefault(c => c.CategoryId == categoryId);
         var channels = await _xtream.GetLiveAsync(credential, categoryId);
+        var playbackBase = await _xtream.ResolvePlaybackBaseAsync(credential);
 
         var visible = channels.Take(_options.MaxChannelItems).ToList();
 
@@ -211,7 +212,7 @@ public sealed class MsxContentFactory
                 Title = channel.Name,
                 Image = NormalizeImage(channel.StreamIcon),
                 ImageWidth = 0.18,
-                Action = $"video:{credential.Base("live", channel.StreamId, "m3u8")}",
+                Action = $"video:{credential.BuildFrom(playbackBase, "live", channel.StreamId, "m3u8")}",
                 PlayerLabel = channel.Name
             }).ToList()
         };
@@ -227,8 +228,9 @@ public sealed class MsxContentFactory
         var categories = await _xtream.GetCategoriesAsync(credential, "vod");
         var category = categories.FirstOrDefault(c => c.CategoryId == _options.DefaultVodCategory);
         var movies = await _xtream.GetVodAsync(credential, _options.DefaultVodCategory);
+        var playbackBase = await _xtream.ResolvePlaybackBaseAsync(credential);
 
-        return BuildPosterGrid(movies, category?.CategoryName ?? "Filmes", "filmes", credential, take);
+        return BuildPosterGrid(movies, category?.CategoryName ?? "Filmes", "filmes", credential, playbackBase, take);
     }
 
     public async Task<MsxContent> BuildVodCategoryAsync(
@@ -237,8 +239,9 @@ public sealed class MsxContentFactory
         var categories = await _xtream.GetCategoriesAsync(credential, "vod");
         var category = categories.FirstOrDefault(c => c.CategoryId == categoryId);
         var movies = await _xtream.GetVodAsync(credential, categoryId);
+        var playbackBase = await _xtream.ResolvePlaybackBaseAsync(credential);
 
-        return BuildPosterGrid(movies, category?.CategoryName ?? "Filmes", "filmes", credential, take);
+        return BuildPosterGrid(movies, category?.CategoryName ?? "Filmes", "filmes", credential, playbackBase, take);
     }
 
     private MsxContent BuildPosterGrid(
@@ -246,6 +249,7 @@ public sealed class MsxContentFactory
         string headline,
         string label,
         XtreamCredential credential,
+        string playbackBase,
         int? take)
     {
         var limit = take ?? _options.MaxPosterItems;
@@ -273,7 +277,7 @@ public sealed class MsxContentFactory
                     Title = TitleWithYear(title, movie.Year),
                     Image = NormalizeImage(movie.StreamIcon),
                     Badge = string.IsNullOrWhiteSpace(movie.Rating) ? null : movie.Rating,
-                    Action = $"video:{credential.Base("movie", movie.StreamId, extension)}",
+                    Action = $"video:{credential.BuildFrom(playbackBase, "movie", movie.StreamId, extension)}",
                     PlayerLabel = title
                 };
             }).ToList()
@@ -346,6 +350,7 @@ public sealed class MsxContentFactory
         HttpContext context, XtreamCredential credential, string seriesId)
     {
         var info = await _xtream.GetSeriesInfoAsync(credential, seriesId);
+        var playbackBase = await _xtream.ResolvePlaybackBaseAsync(credential);
         var episodes = (info?.Episodes ?? [])
             .SelectMany(pair => pair.Value.Select(episode => (Season: pair.Key, Episode: episode)))
             .OrderBy(pair => int.TryParse(pair.Season, out var season) ? season : 0)
@@ -374,7 +379,7 @@ public sealed class MsxContentFactory
                 return new MsxContentItem
                 {
                     Title = $"S{season:00}E{number:00} - {episodeTitle}",
-                    Action = $"video:{credential.Base("series", episode.Id, extension)}",
+                    Action = $"video:{credential.BuildFrom(playbackBase, "series", episode.Id, extension)}",
                     PlayerLabel = episodeTitle
                 };
             }).ToList()
