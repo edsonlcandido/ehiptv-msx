@@ -10,11 +10,39 @@ as telas de conteúdo — tudo gerado a partir do provedor, em tempo real.
 |---|------|----------|
 | 1 | **Início** | 3 cards: Canais ao vivo / Filmes e VOD / Séries e episódios |
 | 2 | **Canais** | Lista de categorias de TV (linhas largas) → canais da categoria (logo + nome), que abrem o player HLS |
-| 3 | **Filmes** | Grade de pôsteres com nota → reproduz o filme (`/movie/….mp4`) |
-| 4 | **Séries** | Grade de pôsteres → página de episódios (`S01E01 - …`) → reproduz (`/series/….mp4`) |
+| 3 | **Filmes** | Barra lateral de categorias à esquerda + grade de pôsteres verticais à direita; rolar para baixo carrega mais filmes → reproduz (`/movie/….mp4`) |
+| 4 | **Séries** | Mesmo desenho da tela de Filmes → página de episódios (`S01E01 - …`) → reproduz (`/series/….mp4`) |
 
 O menu lateral (coluna da esquerda) traz `Início`, `Canais`, `Filmes`, `Séries` e todas as
 categorias de cada seção.
+
+## Filmes e Séries: navegador no estilo XCIPTV
+
+As telas 3 e 4 usam a **grade comprimida do MSX** (`compress: true` → 16×8 em vez de 12×6)
+e um Content Root do tipo `list`, montado com `pages` posicionadas à mão:
+
+```
+┌──────────────┬───────────────────────────────────┐
+│ 0,0  3 cols  │  cartaz 6,0  8,0  10,0  12,0 14,0│  ← 5 cartazes (2×4) + 1 linha de título
+│ 0,1  3 cols  │                                   │
+│ 0,2  ...     │  cartaz 6,4  8,4  10,4  12,0 14,0│  ← 5 cartazes
+│ 3,0  3 cols  │                                   │
+│ 3,1  ...     │                                   │
+└──────────────┴───────────────────────────────────┘
+   categorias          pôsteres (proporção vertical)
+```
+
+- **Barra lateral (colunas 0–5)**: duas sub-colunas com as categorias; a categoria ativa
+  fica com outra cor (`msx-blue`) e a última vaga é **“Mais categorias”**, que abre a
+  lista completa (`/msx/content/vod-categories.json`).
+- **Grade (colunas 6–15)**: 5 cartazes por linha × 2 linhas = **10 por página**. Cada
+  cartaz ocupa 2 colunas × 4 linhas; com o item do tipo `separate`, 3 linhas são de imagem
+  (240×405 px em 1080p — proporção de poster vertical) e 1 linha é a faixa do título.
+- **Scroll vertical**: o tipo `list` empilha as páginas na vertical. Cada página seguinte
+  traz mais 10 cartazes da mesma categoria, então navegar para baixo carrega conteúdo novo.
+- A tela abre focando o primeiro cartaz (e não a barra lateral).
+
+O limite de itens por tela é `MaxPosterItems` (padrão 672 → 68 páginas de 10 cartazes).
 
 ## A credencial vai no primeiro trecho da URL
 
@@ -52,10 +80,12 @@ e o `X-Forwarded-Proto` para montar as URLs públicas.
 | `GET /msx/content/home.json` | Tela 1 — Início (os 3 itens) |
 | `GET /msx/content/live.json` | Tela 2 — Canais (categorias) |
 | `GET /msx/content/live/{categoryId}.json` | Canais da categoria |
-| `GET /msx/content/vod.json` | Tela 3 — Filmes |
-| `GET /msx/content/vod/{categoryId}.json` | Filmes da categoria |
-| `GET /msx/content/series.json` | Tela 4 — Séries |
-| `GET /msx/content/series/{categoryId}.json` | Séries da categoria |
+| `GET /msx/content/vod.json` | Tela 3 — Filmes (navegador com barra lateral) |
+| `GET /msx/content/vod/{categoryId}.json` | Filmes da categoria (mesmo navegador) |
+| `GET /msx/content/vod-categories.json` | Lista completa de categorias de filmes |
+| `GET /msx/content/series.json` | Tela 4 — Séries (navegador com barra lateral) |
+| `GET /msx/content/series/{categoryId}.json` | Séries da categoria (mesmo navegador) |
+| `GET /msx/content/series-categories.json` | Lista completa de categorias de séries |
 | `GET /msx/content/series-info/{seriesId}.json` | Episódios da série |
 | `GET /player_api.php` | API Xtream Codes padrão (veja abaixo) |
 | `GET /msx/diagnostico.json` | Diagnóstico do provedor (ver abaixo) |
@@ -177,7 +207,6 @@ provedor entram por variável de ambiente (ver abaixo) ou pelo arquivo de secret
   "PlaybackBaseUrl": "",
   "DefaultVodCategory": "25",
   "DefaultSeriesCategory": "3178",
-  "PosterItemsPerPage": 12,
   "MaxPosterItems": 672,
   "MaxChannelItems": 1200
 }
@@ -200,8 +229,8 @@ provedor entram por variável de ambiente (ver abaixo) ou pelo arquivo de secret
   host do painel (`BaseUrl`).
 - `PlaybackBaseUrl` — base fixa das URLs de playback; tem prioridade sobre o
   `server_info`. Vazio = usar o `server_info`.
-- `MaxPosterItems` — teto de itens por grade (o MSX aceita no máximo 56 páginas em
-  `pages`, 56 × 12 = 672 itens).
+- `MaxPosterItems` — teto de cartazes por tela de Filmes/Séries (padrão 672 → 68 páginas
+  de 10 cartazes; o MSX aceita no máximo 1024 páginas no tipo `list` e 256 itens por página).
 
 ## Endereços do provedor (fora do repositório)
 
@@ -285,3 +314,9 @@ docker run -p 8080:8080 -e Xtream__PublicBaseUrl=http://<usuario>-<senha>.localh
   chamador alterar o que ficou guardado.
 - No MSX, `items` na raiz do Content Root **exige** `template` — sem isso o MSX ignora os
   itens em silêncio e mostra "Content Not Available".
+- As telas de Filmes e Séries usam `compress: true`, que troca a grade 12×6 pela 16×8
+  (25% menor por célula). É o que permite a barra lateral de categorias ao lado da grade
+  de cartazes com proporção vertical. A barra lateral e a grade são `pages` posicionadas à
+  mão (`layout: "x,y,w,h"`), não `template` + `items`.
+- O prefixo das categorias ("Filmes | ", "Series | ") é removido na barra lateral; o
+  `headline` da tela mantém o nome completo.

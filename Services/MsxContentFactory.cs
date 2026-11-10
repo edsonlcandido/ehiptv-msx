@@ -223,131 +223,315 @@ public sealed class MsxContentFactory
     }
 
     // ------------------------------------------------------------------
-    // Tela 3 - Filmes (grade de posteres)
+    // Telas 3 e 4 - Filmes e Series (navegador no estilo XCIPTV)
     // ------------------------------------------------------------------
 
-    public async Task<MsxContent> BuildVodHubAsync(
-        HttpContext context, XtreamCredential credential, int? take = null)
-    {
-        var categories = await _xtream.GetCategoriesAsync(credential, "vod");
-        var category = categories.FirstOrDefault(c => c.CategoryId == _options.DefaultVodCategory);
-        var movies = await _xtream.GetVodAsync(credential, _options.DefaultVodCategory);
-        var playbackBase = await _xtream.ResolvePlaybackBaseAsync(credential);
+    /// <summary>
+    /// Grade comprimida do MSX: 16 colunas x 8 linhas (o padrao e 12x6).
+    /// A grade comprimida e a unica que permite dividir a tela em uma barra
+    /// lateral de categorias + uma grade de cartazes com proporcao de poster.
+    /// </summary>
+    private const int GridColumns = 16;
+    private const int GridRows = 8;
 
-        return BuildPosterGrid(movies, category?.CategoryName ?? "Filmes", "filmes", credential, playbackBase, take);
-    }
+    /// <summary>Colunas da barra lateral de categorias (0..5).</summary>
+    private const int SidebarColumns = 6;
 
-    public async Task<MsxContent> BuildVodCategoryAsync(
-        HttpContext context, XtreamCredential credential, string categoryId, int? take = null)
-    {
-        var categories = await _xtream.GetCategoriesAsync(credential, "vod");
-        var category = categories.FirstOrDefault(c => c.CategoryId == categoryId);
-        var movies = await _xtream.GetVodAsync(credential, categoryId);
-        var playbackBase = await _xtream.ResolvePlaybackBaseAsync(credential);
+    /// <summary>Largura de cada categoria na barra lateral (3 colunas).</summary>
+    private const int SidebarItemColumns = 3;
 
-        return BuildPosterGrid(movies, category?.CategoryName ?? "Filmes", "filmes", credential, playbackBase, take);
-    }
+    /// <summary>Largura de cada cartaz (em colunas da grade comprimida).</summary>
+    private const int PosterColumns = 2;
 
-    private MsxContent BuildPosterGrid(
-        List<XtreamVodStream> movies,
-        string headline,
-        string label,
-        XtreamCredential credential,
-        string playbackBase,
-        int? take)
-    {
-        var limit = take ?? _options.MaxPosterItems;
-        var visible = movies.Take(limit).ToList();
+    /// <summary>
+    /// Altura do cartaz: 3 linhas de imagem + 1 linha de titulo (o item
+    /// "separate" reserva a ultima linha para o texto).
+    /// </summary>
+    private const int PosterHeight = 4;
 
-        return new MsxContent
-        {
-            Type = "pages",
-            Headline = headline,
-            Hint = $"{visible.Count} {label}",
-            Template = new MsxTemplate
-            {
-                Type = "separate",
-                Layout = "0,0,2,3",
-                Color = "msx-glass",
-                ImageFiller = "cover"
-            },
-            Items = visible.Select(movie =>
-            {
-                var title = string.IsNullOrWhiteSpace(movie.Title) ? movie.Name : movie.Title!;
-                var extension = string.IsNullOrWhiteSpace(movie.ContainerExtension) ? "mp4" : movie.ContainerExtension!;
+    /// <summary>Cartazes por linha, por pagina e vagas da barra lateral.</summary>
+    private const int PosterPerRow = (GridColumns - SidebarColumns) / PosterColumns;
+    private const int PosterRowsPerPage = GridRows / PosterHeight;
+    private const int PosterPerPage = PosterPerRow * PosterRowsPerPage;
+    private const int SidebarSlots = GridRows * 2;
 
-                return new MsxContentItem
-                {
-                    Title = TitleWithYear(title, movie.Year),
-                    Image = NormalizeImage(movie.StreamIcon),
-                    Badge = string.IsNullOrWhiteSpace(movie.Rating) ? null : movie.Rating,
-                    Action = $"video:{credential.BuildFrom(playbackBase, "movie", movie.StreamId, extension)}",
-                    PlayerLabel = title
-                };
-            }).ToList()
-        };
-    }
-
-    // ------------------------------------------------------------------
-    // Tela 4 - Series (grade de posteres -> episodios)
-    // ------------------------------------------------------------------
-
-    public async Task<MsxContent> BuildSeriesHubAsync(
-        HttpContext context, XtreamCredential credential, int? take = null)
-    {
-        var categories = await _xtream.GetCategoriesAsync(credential, "series");
-        var category = categories.FirstOrDefault(c => c.CategoryId == _options.DefaultSeriesCategory);
-        var series = await _xtream.GetSeriesAsync(credential, _options.DefaultSeriesCategory);
-
-        return BuildSeriesGrid(context, credential, series, category?.CategoryName ?? "Séries", take);
-    }
-
-    public async Task<MsxContent> BuildSeriesCategoryAsync(
-        HttpContext context, XtreamCredential credential, string categoryId, int? take = null)
-    {
-        var categories = await _xtream.GetCategoriesAsync(credential, "series");
-        var category = categories.FirstOrDefault(c => c.CategoryId == categoryId);
-        var series = await _xtream.GetSeriesAsync(credential, categoryId);
-
-        return BuildSeriesGrid(context, credential, series, category?.CategoryName ?? "Séries", take);
-    }
-
-    private MsxContent BuildSeriesGrid(
+    /// <summary>
+    /// Tela de Filmes no estilo XCIPTV: barra lateral com as categorias a
+    /// esquerda e a grade de cartazes (proporcao poster) a direita. O tipo
+    /// "list" empilha as paginas na vertical: navegar para baixo carrega
+    /// mais cartazes da mesma categoria.
+    /// </summary>
+    public async Task<MsxContent> BuildVodBrowserAsync(
         HttpContext context,
         XtreamCredential credential,
-        List<XtreamSeries> series,
-        string headline,
-        int? take)
+        string? categoryId = null,
+        int? take = null)
     {
-        var limit = take ?? _options.MaxPosterItems;
-        var visible = series.Take(limit).ToList();
+        var categories = await _xtream.GetCategoriesAsync(credential, "vod");
+        var activeId = ResolveCategoryId(categories, categoryId, _options.DefaultVodCategory);
+        var active = categories.FirstOrDefault(c => c.CategoryId == activeId);
+        var movies = await _xtream.GetVodAsync(credential, activeId);
+        var playbackBase = await _xtream.ResolvePlaybackBaseAsync(credential);
+
+        var visible = movies.Take(take ?? _options.MaxPosterItems).ToList();
+
+        var posters = visible.Select(movie =>
+        {
+            var title = string.IsNullOrWhiteSpace(movie.Title) ? movie.Name : movie.Title!;
+            var extension = string.IsNullOrWhiteSpace(movie.ContainerExtension) ? "mp4" : movie.ContainerExtension!;
+
+            return new MsxContentItem
+            {
+                Type = "separate",
+                Title = TitleWithYear(title, movie.Year),
+                Image = NormalizeImage(movie.StreamIcon),
+                ImageFiller = "cover",
+                Badge = string.IsNullOrWhiteSpace(movie.Rating) ? null : movie.Rating,
+                Action = $"video:{credential.BuildFrom(playbackBase, "movie", movie.StreamId, extension)}",
+                PlayerLabel = title
+            };
+        }).ToList();
+
+        return BuildBrowser(
+            categories,
+            activeId,
+            active?.CategoryName ?? "Filmes",
+            "filmes",
+            id => ContentUrl(context, credential, $"vod/{id}.json"),
+            ContentUrl(context, credential, "vod-categories.json"),
+            posters);
+    }
+
+    /// <summary>
+    /// Tela de Series no estilo XCIPTV (mesmo desenho da tela de Filmes).
+    /// </summary>
+    public async Task<MsxContent> BuildSeriesBrowserAsync(
+        HttpContext context,
+        XtreamCredential credential,
+        string? categoryId = null,
+        int? take = null)
+    {
+        var categories = await _xtream.GetCategoriesAsync(credential, "series");
+        var activeId = ResolveCategoryId(categories, categoryId, _options.DefaultSeriesCategory);
+        var active = categories.FirstOrDefault(c => c.CategoryId == activeId);
+        var series = await _xtream.GetSeriesAsync(credential, activeId);
+
+        var visible = series.Take(take ?? _options.MaxPosterItems).ToList();
+
+        var posters = visible.Select(item =>
+        {
+            var title = string.IsNullOrWhiteSpace(item.Title) ? item.Name : item.Title!;
+
+            return new MsxContentItem
+            {
+                Type = "separate",
+                Title = TitleWithYear(title, item.Year),
+                Image = NormalizeImage(item.Cover),
+                ImageFiller = "cover",
+                Badge = string.IsNullOrWhiteSpace(item.Rating) ? null : item.Rating,
+                Action = $"content:{ContentUrl(context, credential, $"series-info/{item.SeriesId}.json")}",
+                PlayerLabel = title
+            };
+        }).ToList();
+
+        return BuildBrowser(
+            categories,
+            activeId,
+            active?.CategoryName ?? "Séries",
+            "séries",
+            id => ContentUrl(context, credential, $"series/{id}.json"),
+            ContentUrl(context, credential, "series-categories.json"),
+            posters);
+    }
+
+    /// <summary>
+    /// Monta o navegador: barra lateral de categorias (repetida em cada
+    /// pagina) + grade de cartazes paginada na vertical.
+    /// </summary>
+    private MsxContent BuildBrowser(
+        List<XtreamCategory> categories,
+        string activeCategoryId,
+        string headline,
+        string unit,
+        Func<string, string> categoryUrl,
+        string categoriesUrl,
+        List<MsxContentItem> posters)
+    {
+        var sidebar = BuildSidebar(categories, activeCategoryId, categoryUrl, categoriesUrl);
+        var pages = new List<MsxContentPage>();
+
+        for (var offset = 0; offset < posters.Count; offset += PosterPerPage)
+        {
+            var items = new List<MsxContentItem>(sidebar);
+
+            for (var index = 0; index < PosterPerPage && offset + index < posters.Count; index++)
+            {
+                var poster = posters[offset + index];
+                var column = index % PosterPerRow;
+                var row = index / PosterPerRow;
+
+                poster.Layout =
+                    $"{SidebarColumns + column * PosterColumns},{row * PosterHeight},{PosterColumns},{PosterHeight}";
+                poster.Focus = offset == 0 && index == 0 ? true : null;
+
+                items.Add(poster);
+            }
+
+            pages.Add(new MsxContentPage { Items = items });
+        }
+
+        if (pages.Count == 0)
+        {
+            pages.Add(new MsxContentPage
+            {
+                Items =
+                [
+                    .. sidebar,
+                    new MsxContentItem
+                    {
+                        Layout = $"{SidebarColumns},0,{GridColumns - SidebarColumns},{GridRows}",
+                        Type = "default",
+                        Title = "Nenhum item nesta categoria",
+                        Color = "msx-glass"
+                    }
+                ]
+            });
+        }
 
         return new MsxContent
         {
-            Type = "pages",
+            Compress = true,
+            Type = "list",
             Headline = headline,
-            Hint = $"{visible.Count} séries",
+            Hint = $"{posters.Count} {unit}",
+            Pages = pages
+        };
+    }
+
+    /// <summary>
+    /// Barra lateral: duas sub-colunas com as categorias. A categoria ativa
+    /// fica com outra cor e a ultima vaga leva para a lista completa.
+    /// </summary>
+    private List<MsxContentItem> BuildSidebar(
+        List<XtreamCategory> categories,
+        string activeCategoryId,
+        Func<string, string> categoryUrl,
+        string categoriesUrl)
+    {
+        var items = new List<MsxContentItem>();
+        var visible = categories.Take(SidebarSlots - 1).ToList();
+
+        for (var index = 0; index < visible.Count; index++)
+        {
+            var category = visible[index];
+            var subColumn = index / GridRows;
+            var row = index % GridRows;
+            var isActive = string.Equals(category.CategoryId, activeCategoryId, StringComparison.Ordinal);
+
+            items.Add(new MsxContentItem
+            {
+                Layout = $"{subColumn * SidebarItemColumns},{row},{SidebarItemColumns},1",
+                Type = "default",
+                Title = CleanCategoryName(category.CategoryName),
+                Color = isActive ? "msx-blue" : "msx-glass",
+                Action = $"content:{categoryUrl(category.CategoryId)}"
+            });
+        }
+
+        var moreSlot = visible.Count;
+
+        items.Add(new MsxContentItem
+        {
+            Layout = $"{(moreSlot / GridRows) * SidebarItemColumns},{moreSlot % GridRows},{SidebarItemColumns},1",
+            Type = "default",
+            Title = "Mais categorias",
+            Color = "msx-glass",
+            Action = $"content:{categoriesUrl}"
+        });
+
+        return items;
+    }
+
+    /// <summary>Lista completa de categorias (destino do "Mais categorias").</summary>
+    public Task<MsxContent> BuildVodCategoriesAsync(HttpContext context, XtreamCredential credential) =>
+        BuildCategoriesAsync(
+            _xtream.GetCategoriesAsync(credential, "vod"),
+            "Categorias de filmes",
+            id => ContentUrl(context, credential, $"vod/{id}.json"));
+
+    /// <summary>Lista completa de categorias (destino do "Mais categorias").</summary>
+    public Task<MsxContent> BuildSeriesCategoriesAsync(HttpContext context, XtreamCredential credential) =>
+        BuildCategoriesAsync(
+            _xtream.GetCategoriesAsync(credential, "series"),
+            "Categorias de séries",
+            id => ContentUrl(context, credential, $"series/{id}.json"));
+
+    private static async Task<MsxContent> BuildCategoriesAsync(
+        Task<List<XtreamCategory>> categoriesTask,
+        string headline,
+        Func<string, string> categoryUrl)
+    {
+        var categories = await categoriesTask;
+
+        return new MsxContent
+        {
+            Type = "list",
+            Headline = headline,
+            Hint = $"{categories.Count} categorias",
             Template = new MsxTemplate
             {
-                Type = "separate",
-                Layout = "0,0,2,3",
-                Color = "msx-glass",
-                ImageFiller = "cover"
+                Type = "default",
+                Layout = "0,0,12,1",
+                Color = "msx-glass"
             },
-            Items = visible.Select(item =>
+            Items = categories.Select(category => new MsxContentItem
             {
-                var title = string.IsNullOrWhiteSpace(item.Title) ? item.Name : item.Title!;
-
-                return new MsxContentItem
-                {
-                    Title = TitleWithYear(title, item.Year),
-                    Image = NormalizeImage(item.Cover),
-                    Badge = string.IsNullOrWhiteSpace(item.Rating) ? null : item.Rating,
-                    Action = $"content:{ContentUrl(context, credential, $"series-info/{item.SeriesId}.json")}",
-                    PlayerLabel = title
-                };
+                Title = CleanCategoryName(category.CategoryName),
+                Action = $"content:{categoryUrl(category.CategoryId)}"
             }).ToList()
         };
+    }
+
+    /// <summary>
+    /// Descobre qual categoria abrir: a pedida, a padrao ou a primeira.
+    /// </summary>
+    private static string ResolveCategoryId(
+        List<XtreamCategory> categories, string? requested, string fallback)
+    {
+        if (!string.IsNullOrWhiteSpace(requested) &&
+            categories.Any(c => c.CategoryId == requested))
+        {
+            return requested!;
+        }
+
+        if (categories.Any(c => c.CategoryId == fallback))
+        {
+            return fallback;
+        }
+
+        return categories.FirstOrDefault()?.CategoryId ?? requested ?? fallback;
+    }
+
+    /// <summary>
+    /// O provedor prefixa as categorias ("Filmes | Acao", "Series | Netflix").
+    /// Na barra lateral sobra so o nome da categoria.
+    /// </summary>
+    private static string CleanCategoryName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "Sem nome";
+        }
+
+        var text = name.Trim();
+        var separator = text.IndexOf('|');
+
+        if (separator > 0 && separator <= 16)
+        {
+            text = text[(separator + 1)..].Trim();
+        }
+
+        return text;
     }
 
     public async Task<MsxContent> BuildSeriesInfoAsync(
@@ -404,8 +588,8 @@ public sealed class MsxContentFactory
     public async Task<MsxMenu> BuildPreviewMenuAsync(HttpContext context, XtreamCredential credential)
     {
         var live = await BuildLiveHubAsync(context, credential, take: 8);
-        var vod = await BuildVodHubAsync(context, credential, take: 6);
-        var series = await BuildSeriesHubAsync(context, credential, take: 6);
+        var vod = await BuildVodBrowserAsync(context, credential, take: PosterPerPage);
+        var series = await BuildSeriesBrowserAsync(context, credential, take: PosterPerPage);
 
         var home = BuildHome(context, credential);
 

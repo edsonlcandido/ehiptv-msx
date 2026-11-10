@@ -48,12 +48,10 @@ public sealed class XtreamOptions
     /// <summary>Categoria usada na tela inicial de Series.</summary>
     public string DefaultSeriesCategory { get; set; } = "3178";
 
-    /// <summary>Itens por pagina na grade de posteres (12 = 6 colunas x 2 linhas).</summary>
-    public int PosterItemsPerPage { get; set; } = 12;
-
     /// <summary>
-    /// Limite de itens de uma grade de posteres. O MSX aceita no maximo 56
-    /// paginas no modo "pages" (56 x 12 = 672 itens).
+    /// Limite de itens de uma tela de Filmes/Séries. Cada página do navegador
+    /// tem 10 cartazes, então 672 itens = 68 páginas (o MSX aceita no máximo
+    /// 1024 páginas no tipo "list" e 256 itens por página).
     /// </summary>
     public int MaxPosterItems { get; set; } = 672;
 

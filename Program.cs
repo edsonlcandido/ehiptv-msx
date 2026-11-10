@@ -220,12 +220,12 @@ app.MapGet("/msx/content/live/{categoryId}.json", async (HttpContext context, st
     return Results.Json(content, MsxJson.Options);
 });
 
-// Filmes: hub (categoria padrao) e categoria especifica.
+// Filmes: navegador (barra lateral de categorias + grade de cartazes).
 app.MapGet("/msx/content/vod.json", async (HttpContext context, CredentialResolver resolver,
     MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildVodHubAsync(context, credential);
+    var content = await factory.BuildVodBrowserAsync(context, credential);
     return Results.Json(content, MsxJson.Options);
 });
 
@@ -233,16 +233,25 @@ app.MapGet("/msx/content/vod/{categoryId}.json", async (HttpContext context, str
     CredentialResolver resolver, MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildVodCategoryAsync(context, credential, categoryId);
+    var content = await factory.BuildVodBrowserAsync(context, credential, categoryId);
     return Results.Json(content, MsxJson.Options);
 });
 
-// Series: hub, categoria e episodios.
+// Lista completa de categorias de filmes (destino do "Mais categorias").
+app.MapGet("/msx/content/vod-categories.json", async (HttpContext context, CredentialResolver resolver,
+    MsxContentFactory factory) =>
+{
+    var credential = resolver.Resolve(context);
+    var content = await factory.BuildVodCategoriesAsync(context, credential);
+    return Results.Json(content, MsxJson.Options);
+});
+
+// Series: navegador (barra lateral de categorias + grade de cartazes).
 app.MapGet("/msx/content/series.json", async (HttpContext context, CredentialResolver resolver,
     MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildSeriesHubAsync(context, credential);
+    var content = await factory.BuildSeriesBrowserAsync(context, credential);
     return Results.Json(content, MsxJson.Options);
 });
 
@@ -250,7 +259,16 @@ app.MapGet("/msx/content/series/{categoryId}.json", async (HttpContext context, 
     CredentialResolver resolver, MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildSeriesCategoryAsync(context, credential, categoryId);
+    var content = await factory.BuildSeriesBrowserAsync(context, credential, categoryId);
+    return Results.Json(content, MsxJson.Options);
+});
+
+// Lista completa de categorias de series (destino do "Mais categorias").
+app.MapGet("/msx/content/series-categories.json", async (HttpContext context, CredentialResolver resolver,
+    MsxContentFactory factory) =>
+{
+    var credential = resolver.Resolve(context);
+    var content = await factory.BuildSeriesCategoriesAsync(context, credential);
     return Results.Json(content, MsxJson.Options);
 });
 

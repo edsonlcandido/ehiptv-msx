@@ -62,6 +62,14 @@ public sealed class MsxContent
     [JsonPropertyName("type")]
     public string Type { get; set; } = "pages";
 
+    /// <summary>
+    /// Comprime a grade de 12x6 para 16x8 (25% menor por celula). Necessario
+    /// para as telas de Filmes e Series, onde a barra lateral de categorias
+    /// divide a tela com a grade de cartazes.
+    /// </summary>
+    [JsonPropertyName("compress")]
+    public bool? Compress { get; set; }
+
     [JsonPropertyName("headline")]
     public string? Headline { get; set; }
 
@@ -122,6 +130,13 @@ public sealed class MsxContentItem
 {
     [JsonPropertyName("id")]
     public string? Id { get; set; }
+
+    /// <summary>
+    /// Foca este item ao abrir a tela. Sem isso o MSX foca o primeiro item
+    /// (a barra lateral de categorias) em vez da grade de cartazes.
+    /// </summary>
+    [JsonPropertyName("focus")]
+    public bool? Focus { get; set; }
 
     [JsonPropertyName("type")]
     public string? Type { get; set; }
