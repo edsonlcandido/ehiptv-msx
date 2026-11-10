@@ -69,6 +69,23 @@ public sealed class XtreamClient
         GetAsync<XtreamSeriesInfo>(credential, "get_series_info", $"series_id={seriesId}", TimeSpan.FromMinutes(30));
 
     /// <summary>
+    /// EPG do canal (programa atual + os proximos). O provedor responde com
+    /// "epg_listings"; o titulo e a descricao vem em base64.
+    /// O cache e curto (2 min) porque a lista comeca no programa atual.
+    /// </summary>
+    public async Task<List<XtreamEpgListing>> GetShortEpgAsync(
+        XtreamCredential credential, string streamId, int limit = 2)
+    {
+        var response = await GetAsync<XtreamEpgResponse>(
+            credential,
+            "get_short_epg",
+            $"stream_id={Uri.EscapeDataString(streamId)}&limit={Math.Clamp(limit, 1, 20)}",
+            TimeSpan.FromMinutes(2));
+
+        return response?.Listings ?? [];
+    }
+
+    /// <summary>
     /// Informacoes da conta e do servidor (player_api.php sem "action"). E daqui
     /// que sai a base das URLs de playback.
     /// </summary>

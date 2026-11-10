@@ -61,7 +61,7 @@ public sealed class MsxContentFactory
                 {
                     Icon = "msx-white-soft:live-tv",
                     Label = "Canais",
-                    Data = ContentUrl(context, credential, "live.json")
+                    Data = SectionMenuUrl(context, "live.json")
                 },
                 new MsxMenuItem
                 {
@@ -136,8 +136,10 @@ public sealed class MsxContentFactory
         },
         Items =
         [
+            // "Canais" abre o MENU do app (coluna nativa): as categorias de TV
+            // ficam na coluna da esquerda, que rola e mostra todas.
             HomeCard("msx-white-soft:live-tv", "Canais ao vivo",
-                ContentUrl(context, credential, "live.json")),
+                SectionMenuUrl(context, "live.json"), "menu"),
             HomeCard("msx-white-soft:movie", "Filmes e VOD",
                 ContentUrl(context, credential, "vod.json")),
             HomeCard("msx-white-soft:video-library", "Séries e episódios",
@@ -145,27 +147,32 @@ public sealed class MsxContentFactory
         ]
     };
 
-    private static MsxContentItem HomeCard(string icon, string title, string url) => new()
+    private static MsxContentItem HomeCard(string icon, string title, string url, string action = "content") => new()
     {
         Type = "default",
         Icon = icon,
         IconSize = "large",
         Title = title,
-        Action = $"content:{url}"
+        Action = $"{action}:{url}"
     };
 
     // ------------------------------------------------------------------
-    // Tela 2 - Canais (navegador no estilo XCIPTV)
+    // Tela 2 - Canais (lista no estilo "Channel List" do MSX)
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Tela de Canais no mesmo desenho das telas de Filmes e Series: barra
-    /// lateral com as categorias de TV a esquerda e, a direita, os canais como
-    /// cards horizontais (logo do canal a esquerda, nome a direita). O tipo
-    /// "list" empilha as paginas na vertical: navegar para baixo carrega mais
-    /// canais da mesma categoria.
+    /// Tela de Canais: a lista de canais no estilo do demo "Channel List" do
+    /// MSX — um canal por linha, logomarca a esquerda, nome do canal, programa
+    /// no ar, horario e barra de progresso.
+    ///
+    /// O programa no ar vem do servico de live data ("/msx/live/epg"): o
+    /// MSX chama o servico quando o canal fica visivel e atualiza o item
+    /// sozinho (programa, horario e progresso), sem recarregar a tela.
+    ///
+    /// As categorias ficam na coluna nativa do app (o menu do MSX, que rola
+    /// e mostra todas), e nao dentro do conteudo.
     /// </summary>
-    public async Task<MsxContent> BuildLiveBrowserAsync(
+    public async Task<MsxContent> BuildLiveChannelListAsync(
         HttpContext context,
         XtreamCredential credential,
         string? categoryId = null,
@@ -179,39 +186,112 @@ public sealed class MsxContentFactory
 
         var visible = channels.Take(take ?? _options.MaxChannelItems).ToList();
 
-        var cards = visible.Select(channel => new MsxContentItem
-        {
-            // "default" (e nao "separate"): o "separate" reserva uma linha da
-            // celula para o titulo (cartao de poster). Aqui o titulo fica ao
-            // lado da imagem, dentro da mesma celula.
-            Type = "default",
-            Title = channel.Name,
-            Image = NormalizeImage(channel.StreamIcon),
-            ImageWidth = ChannelImageWidth,
-            ImageFiller = "fit",
-            Color = "msx-glass",
-            Action = $"video:{credential.BuildFrom(playbackBase, "live", channel.StreamId, "m3u8")}",
-            PlayerLabel = channel.Name
-        }).ToList();
+        // A lista usa paginas explicitas (como o demo "Channel List" do MSX):
+        // cada canal ocupa 1,5 linha da grade (12x6), assim o bloco de texto
+        // — nome, programa no ar, horario e barra de progresso — cabe sem
+        // ficar cortado.
+        var pages = new List<MsxContentPage>();
 
-        return BuildBrowser(
-            categories,
-            activeId,
-            HeadlineName(active?.CategoryName, "Canais"),
-            "canais",
-            id => ContentUrl(context, credential, $"live/{id}.json"),
-            ContentUrl(context, credential, "live-categories.json"),
-            cards,
-            ChannelPerPage,
-            PlaceChannelCard);
+        for (var offset = 0; offset < visible.Count; offset += ChannelRowsPerPage)
+        {
+            var items = new List<MsxContentItem>();
+
+            for (var index = 0; index < ChannelRowsPerPage && offset + index < visible.Count; index++)
+            {
+                var channel = visible[offset + index];
+                var y = index * ChannelRowPitch;
+                var row = (int)Math.Round(y, MidpointRounding.AwayFromZero);
+                var shift = y - row;
+
+                items.Add(new MsxContentItem
+                {
+                    Id = $"ch_{channel.StreamId}",
+                    Type = "default",
+                    Layout = $"0,{row},12,1",
+                    Offset = $"0,{Format(shift)},0,0.5",
+                    // O nome do canal vai em "text" (como no demo "Channel
+                    // List"): o texto ocupa a primeira linha do bloco e o
+                    // programa no ar, que o MSX injeta no titleHeader, fica
+                    // logo abaixo.
+                    Text = WhiteText(channel.Name),
+                    Image = NormalizeImage(channel.StreamIcon),
+                    ImageWidth = ChannelImageWidth,
+                    ImageFiller = "fit",
+                    Action = $"video:{credential.BuildFrom(playbackBase, "live", channel.StreamId, "m3u8")}",
+                    PlayerLabel = channel.Name,
+                    // O MSX so atualiza um campo que ja veio no proprio item (o
+                    // que define o programa no ar, o horario e a barra de
+                    // progresso). Se esses campos ficam so no template, o
+                    // update nao aparece.
+                    TitleHeader = string.Empty,
+                    TitleFooter = string.Empty,
+                    Progress = -1,
+                    Properties = new Dictionary<string, string>
+                    {
+                        ["progress:type"] = "fix:Live"
+                    },
+                    Live = new MsxLiveObject
+                    {
+                        Type = "setup",
+                        Action = $"execute:service:{EpgServiceUrl(context, channel.StreamId)}"
+                    },
+                    Focus = offset == 0 && index == 0 ? true : null
+                });
+            }
+
+            pages.Add(new MsxContentPage { Items = items });
+        }
+
+        return new MsxContent
+        {
+            Type = "list",
+            Headline = HeadlineName(active?.CategoryName, "Canais"),
+            Hint = $"{visible.Count} canais",
+            Pages = pages
+        };
     }
 
-    /// <summary>Lista completa de categorias de TV (destino do "Mais categorias").</summary>
-    public Task<MsxContent> BuildLiveCategoriesAsync(HttpContext context, XtreamCredential credential) =>
-        BuildCategoriesAsync(
-            _xtream.GetCategoriesAsync(credential, "live"),
-            "Categorias de TV",
-            id => ContentUrl(context, credential, $"live/{id}.json"));
+    /// <summary>Canais por pagina na lista de TV (4 linhas de 1,5 na grade).</summary>
+    private const int ChannelRowsPerPage = 4;
+
+    /// <summary>Espacamento entre um canal e o seguinte, em linhas da grade.</summary>
+    private const double ChannelRowPitch = 1.5;
+
+    /// <summary>Numero no padrao do MSX (sempre com ponto, nunca virgula).</summary>
+    private static string Format(double value) =>
+        value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Texto em branco, como no demo "Channel List" do MSX. As chaves sao
+    /// removidas do texto para nao quebrar a inline expression.
+    /// </summary>
+    private static string WhiteText(string value) =>
+        "{txt:msx-white:" + value.Replace("{", "").Replace("}", "") + "}";
+
+    /// <summary>
+    /// Menu (coluna nativa do app) com as categorias de TV. A coluna do MSX
+    /// rola e mostra todas as categorias — diferente da barra lateral dentro
+    /// do conteudo, que cabe so 8 por pagina.
+    /// </summary>
+    public async Task<MsxMenu> BuildLiveMenuAsync(HttpContext context, XtreamCredential credential)
+    {
+        var categories = await _xtream.GetCategoriesAsync(credential, "live");
+
+        return new MsxMenu
+        {
+            Headline = "Canais",
+            Menu = categories.Select(category => new MsxMenuItem
+            {
+                Id = $"cat_{category.CategoryId}",
+                Label = CleanCategoryName(category.CategoryName),
+                Data = ContentUrl(context, credential, $"live/{category.CategoryId}.json")
+            }).ToList()
+        };
+    }
+
+    /// <summary>Endereco do servico de live data (EPG) de um canal.</summary>
+    public string EpgServiceUrl(HttpContext context, string streamId) =>
+        $"{BaseUrl(context)}/msx/live/epg?stream_id={Uri.EscapeDataString(streamId)}";
 
     // ------------------------------------------------------------------
     // Telas 3 e 4 - Filmes e Series (navegador no estilo XCIPTV)
@@ -257,21 +337,11 @@ public sealed class MsxContentFactory
     private const int SidebarWindow = SidebarSlots - 2;
 
     /// <summary>
-    /// Largura do card de canal (em colunas da grade comprimida). O card de
-    /// canal ocupa a largura toda da area de conteudo: UM canal por linha.
-    /// </summary>
-    private const int ChannelCardColumns = GridColumns - SidebarColumns;
-
-    /// <summary>Cards de canal por linha e por pagina.</summary>
-    private const int ChannelCardsPerRow = (GridColumns - SidebarColumns) / ChannelCardColumns;
-    private const int ChannelPerPage = ChannelCardsPerRow * GridRows;
-
-    /// <summary>
     /// Largura da imagem dentro do card de canal. O MSX mede a imagem na
-    /// mesma unidade do "layout" do item (colunas da grade), entao 3 de 12
-    /// colunas = 25% do card, deixando o nome do canal ao lado.
+    /// mesma unidade do "layout" do item (colunas da grade), entao 1.6 de 12
+    /// colunas = 13% do card, deixando o nome do canal ao lado.
     /// </summary>
-    private const double ChannelImageWidth = 3;
+    private const double ChannelImageWidth = 1.6;
 
     /// <summary>Posiciona um cartaz de filme/serie na grade da area de conteudo.</summary>
     private static void PlacePoster(MsxContentItem item, int index)
@@ -281,16 +351,6 @@ public sealed class MsxContentFactory
 
         item.Layout =
             $"{SidebarColumns + column * PosterColumns},{row * PosterHeight},{PosterColumns},{PosterHeight}";
-    }
-
-    /// <summary>Posiciona um card de canal na grade da area de conteudo.</summary>
-    private static void PlaceChannelCard(MsxContentItem item, int index)
-    {
-        var column = index % ChannelCardsPerRow;
-        var row = index / ChannelCardsPerRow;
-
-        item.Layout =
-            $"{SidebarColumns + column * ChannelCardColumns},{row},{ChannelCardColumns},1";
     }
 
     /// <summary>
@@ -657,7 +717,7 @@ public sealed class MsxContentFactory
     /// </summary>
     public async Task<MsxMenu> BuildPreviewMenuAsync(HttpContext context, XtreamCredential credential)
     {
-        var live = await BuildLiveBrowserAsync(context, credential, take: ChannelPerPage);
+        var live = await BuildLiveChannelListAsync(context, credential, take: 8);
         var vod = await BuildVodBrowserAsync(context, credential, take: PosterPerPage);
         var series = await BuildSeriesBrowserAsync(context, credential, take: PosterPerPage);
 
@@ -737,6 +797,13 @@ public sealed class MsxContentFactory
 
     private string MenuUrl(HttpContext context, XtreamCredential credential) =>
         $"{BaseUrl(context)}/msx/menu.json";
+
+    /// <summary>
+    /// Menu de uma secao (coluna nativa do app). O "menu:" no start.json ou
+    /// na acao de um card faz o MSX mostrar essa coluna a esquerda.
+    /// </summary>
+    private string SectionMenuUrl(HttpContext context, string relative) =>
+        $"{BaseUrl(context)}/msx/menu/{relative}";
 
     private string ContentUrl(HttpContext context, XtreamCredential credential, string relative) =>
         $"{BaseUrl(context)}/msx/content/{relative}";

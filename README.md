@@ -9,16 +9,51 @@ as telas de conteúdo — tudo gerado a partir do provedor, em tempo real.
 | # | Tela | Conteúdo |
 |---|------|----------|
 | 1 | **Início** | 3 cards: Canais ao vivo / Filmes e VOD / Séries e episódios |
-| 2 | **Canais** | Barra lateral de categorias de TV à esquerda + cards horizontais à direita (logo do canal + nome), que abrem o player HLS; rolar para baixo carrega mais canais |
+| 2 | **Canais** | Coluna nativa do app com **todas as categorias de TV** + lista de canais no estilo *Channel List* do MSX (logo, nome, **programa no ar**, horário e barra de progresso) |
 | 3 | **Filmes** | Barra lateral de categorias à esquerda + grade de pôsteres verticais à direita; rolar para baixo carrega mais filmes → reproduz (`/movie/….mp4`) |
 | 4 | **Séries** | Mesmo desenho da tela de Filmes → página de episódios (`S01E01 - …`) → reproduz (`/series/….mp4`) |
 
 O menu lateral (coluna da esquerda) traz `Início`, `Canais`, `Filmes`, `Séries` e todas as
-categorias de cada seção.
+categorias de cada seção. A tela de Canais abre o menu de TV (`/msx/menu/live.json`), que
+lista **todas** as categorias de canal do provedor.
 
-## Navegador no estilo XCIPTV (Canais, Filmes e Séries)
+## Tela de Canais no estilo "Channel List" (com EPG)
 
-As telas 2, 3 e 4 usam a **grade comprimida do MSX** (`compress: true` → 16×8 em vez de 12×6)
+A tela 2 **não usa a barra lateral dentro do conteúdo**: as categorias de TV ficam na
+**coluna nativa do app** (o menu do MSX, que rola e mostra todas — 45 no provedor atual),
+e o conteúdo mostra a lista de canais da categoria escolhida. O card "Canais ao vivo" do
+Início abre esse menu (`menu:{host}/msx/menu/live.json`).
+
+A lista é uma página do Content Root do tipo `list`, montada com `pages` posicionadas à mão,
+igual ao demo *Channel List* do MSX:
+
+```
+┌────────┬─────────────────────────────────────────────┐
+│ logo   │ NOME DO CANAL                                │
+│        │ Programa no ar                               │
+│        │ 16:10 - 16:40 (30 min) | 25 min left         │
+│        │ ▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │ ← progresso
+└────────┴─────────────────────────────────────────────┘
+```
+
+- **4 canais por página**, cada um ocupando **1,5 linha** da grade 12×6 (`layout` + `offset`),
+  para o bloco de texto (nome, programa, horário e barra) caber inteiro.
+- O item é do tipo `default`, com o **logo à esquerda** (`imageWidth: 1.6` — o MSX mede a
+  imagem na mesma unidade do `layout`, então 1,6 de 12 colunas) e `imageFiller: "fit"`
+  (logomarca inteira, sem corte).
+- O nome do canal vai em `text` (em branco, como no demo) e o **programa no ar** e o
+  **horário** são injetados pelo MSX no `titleHeader` e no `titleFooter` do item.
+- **EPG**: cada item carrega um `live` do tipo `setup`, que roda
+  `execute:service:{host}/msx/live/epg?stream_id=…` quando o canal fica visível. O serviço
+  responde `update:content:{id}` com um `live` do tipo `schedule` (programa, faixa de
+  horário e contagem regressiva) e uma ação `over` que refaz a chamada quando o programa
+  termina — a lista se atualiza sozinha. O `stream_id` vem do provedor (`get_short_epg`);
+  título e descrição chegam em base64 e são decodificados pelo app.
+- Canais sem EPG no provedor ficam sem programa (e o serviço tenta de novo em 1 hora).
+
+## Navegador no estilo XCIPTV (Filmes e Séries)
+
+As telas 3 e 4 usam a **grade comprimida do MSX** (`compress: true` → 16×8 em vez de 12×6)
 e um Content Root do tipo `list`, montado com `pages` posicionadas à mão:
 
 ```
@@ -41,18 +76,13 @@ e um Content Root do tipo `list`, montado com `pages` posicionadas à mão:
   página**. Cada cartaz ocupa 2 colunas × 4 linhas; com o item do tipo `separate`, 3 linhas
   são de imagem (240×405 px em 1080p — proporção de poster vertical) e 1 linha é a
   faixa do título.
-- **Cards de Canais (colunas 4–15)**: **1 canal por linha × 8 linhas = 8 por página**.
-  Cada card ocupa a largura toda da área de conteúdo (12 colunas × 1 linha) e é um item
-  do tipo `default` com `imageWidth: 3` (o MSX mede a imagem na mesma unidade do
-  `layout` — 3 de 12 colunas = 25% do card): o **logo do canal fica à esquerda** e o
-  **nome do canal à direita**. O `imageFiller: "fit"` mostra a logomarca inteira, sem corte.
 - **Scroll vertical**: o tipo `list` empilha as páginas na vertical. Cada página
   seguinte traz mais conteúdo da mesma categoria (e a janela da barra lateral
   anda junto), então navegar para baixo carrega conteúdo novo.
 - A tela abre focando o primeiro item da área de conteúdo (e não a barra lateral).
 
 O limite de itens por tela é `MaxPosterItems` (padrão 672 → 56 páginas de 12 cartazes) para
-Filmes/Séries e `MaxChannelItems` (padrão 1200 → 150 páginas de 8 canais) para Canais.
+Filmes/Séries e `MaxChannelItems` (padrão 1200 → 300 páginas de 4 canais) para Canais.
 
 ## A credencial vai no primeiro trecho da URL
 
@@ -88,9 +118,10 @@ e o `X-Forwarded-Proto` para montar as URLs públicas.
 | `GET /msx/start.json` | Start Object (aponta para a tela inicial) |
 | `GET /msx/menu.json` | Menu Root (barra lateral, opcional) |
 | `GET /msx/content/home.json` | Tela 1 — Início (os 3 itens) |
-| `GET /msx/content/live.json` | Tela 2 — Canais (navegador com barra lateral) |
-| `GET /msx/content/live/{categoryId}.json` | Canais da categoria (mesmo navegador) |
-| `GET /msx/content/live-categories.json` | Lista completa de categorias de TV |
+| `GET /msx/menu/live.json` | Menu de TV (coluna nativa do app com todas as categorias) |
+| `GET /msx/content/live.json` | Tela 2 — Canais (lista no estilo *Channel List*) |
+| `GET /msx/content/live/{categoryId}.json` | Canais da categoria (mesma lista) |
+| `GET /msx/live/epg?stream_id=…` | Serviço de live data do MSX (programa no ar do canal) |
 | `GET /msx/content/vod.json` | Tela 3 — Filmes (navegador com barra lateral) |
 | `GET /msx/content/vod/{categoryId}.json` | Filmes da categoria (mesmo navegador) |
 | `GET /msx/content/vod-categories.json` | Lista completa de categorias de filmes |
@@ -333,9 +364,16 @@ docker run -p 8080:8080 -e Xtream__PublicBaseUrl=http://<usuario>-<senha>.localh
   chamador alterar o que ficou guardado.
 - No MSX, `items` na raiz do Content Root **exige** `template` — sem isso o MSX ignora os
   itens em silêncio e mostra "Content Not Available".
-- As telas de Canais, Filmes e Séries usam `compress: true`, que troca a grade 12×6 pela 16×8
+- As telas de Filmes e Séries usam `compress: true`, que troca a grade 12×6 pela 16×8
   (25% menor por célula). É o que permite a barra lateral de categorias ao lado da grade
   de cartazes com proporção vertical. A barra lateral e a grade são `pages` posicionadas à
   mão (`layout: "x,y,w,h"`), não `template` + `items`.
+- O MSX só atualiza um campo que **veio no próprio item**: se `titleHeader`, `titleFooter`
+  ou `progress` ficarem só no `template`, o update do EPG não aparece na tela.
+- O MSX chama o serviço de live data com **POST**, mantendo a query string (`?stream_id=…`)
+  e mandando `{"data":null}` no corpo. O endpoint aceita `GET`/`POST` e lê o parâmetro da
+  query, do form ou do JSON.
+- O `imageWidth` do MSX é medido em **colunas da grade** (não é fração 0–1) e nunca pode
+  ser maior que a largura do item.
 - O prefixo das categorias ("Canais | ", "Filmes | ", "Series | ") é removido na barra
   lateral e no `headline` da tela.

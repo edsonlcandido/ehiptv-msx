@@ -77,6 +77,7 @@ builder.Services.PostConfigure<XtreamOptions>(options =>
 builder.Services.AddSingleton<CredentialResolver>();
 builder.Services.AddSingleton<XtreamClient>();
 builder.Services.AddSingleton<XtreamApiService>();
+builder.Services.AddSingleton<EpgService>();
 builder.Services.AddSingleton<MsxContentFactory>();
 
 // CORS: o MSX busca o start.json/menu.json com withCredentials=true.
@@ -90,7 +91,7 @@ builder.Services.AddCors(options =>
         policy.SetIsOriginAllowed(_ => true)
               .AllowCredentials()
               .WithHeaders("Origin", "Content-Type", "Accept")
-              .WithMethods("GET", "OPTIONS");
+              .WithMethods("GET", "POST", "OPTIONS");
     });
 });
 
@@ -202,31 +203,64 @@ app.MapGet("/msx/content/home.json", (HttpContext context, CredentialResolver re
     return Results.Json(factory.BuildHome(context, credential), MsxJson.Options);
 });
 
-// Canais: navegador (barra lateral de categorias + cards horizontais).
+// Canais: menu com as categorias de TV (coluna nativa do app, que rola e
+// mostra todas). Cada item aponta para a lista de canais da categoria.
+app.MapGet("/msx/menu/live.json", async (HttpContext context, CredentialResolver resolver,
+    MsxContentFactory factory) =>
+{
+    var credential = resolver.Resolve(context);
+    var menu = await factory.BuildLiveMenuAsync(context, credential);
+    return Results.Json(menu, MsxJson.Options);
+});
+
+// Canais: lista de canais da categoria (estilo "Channel List" do MSX, com o
+// programa no ar que vem do servico de live data).
 app.MapGet("/msx/content/live.json", async (HttpContext context, CredentialResolver resolver,
     MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildLiveBrowserAsync(context, credential);
+    var content = await factory.BuildLiveChannelListAsync(context, credential);
     return Results.Json(content, MsxJson.Options);
 });
 
-// Canais: navegador da categoria (a barra lateral continua a esquerda).
 app.MapGet("/msx/content/live/{categoryId}.json", async (HttpContext context, string categoryId,
     CredentialResolver resolver, MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildLiveBrowserAsync(context, credential, categoryId);
+    var content = await factory.BuildLiveChannelListAsync(context, credential, categoryId);
     return Results.Json(content, MsxJson.Options);
 });
 
-// Lista completa de categorias de TV (destino do "Mais categorias").
-app.MapGet("/msx/content/live-categories.json", async (HttpContext context, CredentialResolver resolver,
-    MsxContentFactory factory) =>
+// Servico de live data (EPG) do MSX: o app chama este endereco quando um
+// canal fica visivel e recebe o programa atual (horario e barra de
+// progresso) no formato "update:content:{ID}".
+//
+// O MSX chama o servico com POST, mantendo a query string
+// (?stream_id=...) e mandando {"data":null} no corpo. O "stream_id" e lido da
+// query, do form e do JSON, para funcionar em qualquer variante.
+app.MapMethods("/msx/live/epg", ["GET", "POST"], async (HttpContext context, CredentialResolver resolver,
+    EpgService epg, MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildLiveCategoriesAsync(context, credential);
-    return Results.Json(content, MsxJson.Options);
+    var streamId = await ReadParameterAsync(context, "stream_id");
+
+    if (string.IsNullOrWhiteSpace(streamId))
+    {
+        return Results.Json(new MsxLiveResponse
+        {
+            Response = new MsxResponseEnvelope
+            {
+                Status = 400,
+                Text = "Bad Request",
+                Message = "stream_id obrigatorio."
+            }
+        }, MsxJson.Options);
+    }
+
+    var response = await epg.BuildResponseAsync(
+        credential, streamId, $"ch_{streamId}", factory.EpgServiceUrl(context, streamId));
+
+    return Results.Json(response, MsxJson.Options);
 });
 
 // Filmes: navegador (barra lateral de categorias + grade de cartazes).
@@ -437,6 +471,65 @@ app.Run();
 
 string HelpUrl(HttpContext context) =>
     $"{CredentialResolver.PublicScheme(context, publicScheme)}://{CredentialResolver.PublicHost(context)}/msx/ajuda.json";
+
+/// <summary>
+/// Le um parametro enviado pelo MSX. O app chama o servico de live data com
+/// POST, mantendo a query string e levando os parametros no corpo — entao a
+/// busca e feita na query, no form e no JSON, nesta ordem.
+/// </summary>
+static async Task<string?> ReadParameterAsync(HttpContext context, string name)
+{
+    var value = context.Request.Query[name].FirstOrDefault();
+
+    if (!string.IsNullOrWhiteSpace(value))
+    {
+        return value;
+    }
+
+    if (context.Request.HasFormContentType)
+    {
+        var form = await context.Request.ReadFormAsync();
+        value = form[name].FirstOrDefault();
+
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+    }
+
+    if (context.Request.ContentType?.Contains("application/json", StringComparison.OrdinalIgnoreCase) == true)
+    {
+        using var reader = new StreamReader(context.Request.Body);
+        var body = await reader.ReadToEndAsync();
+
+        if (!string.IsNullOrWhiteSpace(body))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(body);
+                var root = document.RootElement;
+
+                if (root.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var property in root.EnumerateObject())
+                    {
+                        if (property.Name.Equals(name, StringComparison.OrdinalIgnoreCase) &&
+                            property.Value.ValueKind == JsonValueKind.String)
+                        {
+                            return property.Value.GetString();
+                        }
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                // corpo nao e JSON: segue sem o parametro
+            }
+        }
+    }
+
+    return null;
+}
 
 static MsxContent BuildHelpContent(HttpContext context) => new()
 {

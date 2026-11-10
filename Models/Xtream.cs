@@ -317,3 +317,48 @@ public sealed class XtreamEpisodeInfo
     [JsonPropertyName("release_date")]
     public string? ReleaseDate { get; set; }
 }
+
+/// <summary>
+/// Resposta do EPG do Xtream Codes ("get_short_epg" / "get_simple_data_table").
+/// O provedor devolve o titulo e a descricao em base64.
+/// </summary>
+public sealed class XtreamEpgResponse
+{
+    [JsonPropertyName("epg_listings")]
+    public List<XtreamEpgListing> Listings { get; set; } = [];
+}
+
+/// <summary>Programa de TV do EPG.</summary>
+public sealed class XtreamEpgListing
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("epg_id")]
+    public string? EpgId { get; set; }
+
+    /// <summary>Titulo do programa (base64 no provedor).</summary>
+    [JsonPropertyName("title")]
+    public string? Title { get; set; }
+
+    /// <summary>Descricao do programa (base64 no provedor).</summary>
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("channel_id")]
+    public string? ChannelId { get; set; }
+
+    /// <summary>Inicio do programa (epoch em segundos, vem como string).</summary>
+    [JsonPropertyName("start_timestamp")]
+    public string? StartTimestamp { get; set; }
+
+    /// <summary>Fim do programa (epoch em segundos, vem como string).</summary>
+    [JsonPropertyName("stop_timestamp")]
+    public string? StopTimestamp { get; set; }
+
+    /// <summary>Epoch do inicio (0 se nao veio).</summary>
+    public long StartUnix => long.TryParse(StartTimestamp, out var value) ? value : 0;
+
+    /// <summary>Epoch do fim (0 se nao veio).</summary>
+    public long StopUnix => long.TryParse(StopTimestamp, out var value) ? value : 0;
+}
