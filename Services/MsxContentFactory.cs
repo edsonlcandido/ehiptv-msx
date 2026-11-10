@@ -155,72 +155,63 @@ public sealed class MsxContentFactory
     };
 
     // ------------------------------------------------------------------
-    // Tela 2 - Canais (categorias -> canais)
+    // Tela 2 - Canais (navegador no estilo XCIPTV)
     // ------------------------------------------------------------------
 
-    public async Task<MsxContent> BuildLiveHubAsync(
-        HttpContext context, XtreamCredential credential, int? take = null)
+    /// <summary>
+    /// Tela de Canais no mesmo desenho das telas de Filmes e Series: barra
+    /// lateral com as categorias de TV a esquerda e, a direita, os canais como
+    /// cards horizontais (logo do canal a esquerda, nome a direita). O tipo
+    /// "list" empilha as paginas na vertical: navegar para baixo carrega mais
+    /// canais da mesma categoria.
+    /// </summary>
+    public async Task<MsxContent> BuildLiveBrowserAsync(
+        HttpContext context,
+        XtreamCredential credential,
+        string? categoryId = null,
+        int? take = null)
     {
         var categories = await _xtream.GetCategoriesAsync(credential, "live");
-
-        if (take is not null)
-        {
-            categories = categories.Take(take.Value).ToList();
-        }
-
-        return new MsxContent
-        {
-            Type = "list",
-            Headline = "Categorias",
-            Hint = $"{categories.Count} categorias de TV",
-            Template = new MsxTemplate
-            {
-                // "default" (e nao "separate"): sem imagem, o "separate" colocaria
-                // o titulo na area vazia da imagem, no topo da celula.
-                Type = "default",
-                Layout = "0,0,12,1",
-                Color = "msx-glass"
-            },
-            Items = categories.Select(category => new MsxContentItem
-            {
-                Title = category.CategoryName,
-                Action = $"content:{ContentUrl(context, credential, $"live/{category.CategoryId}.json")}"
-            }).ToList()
-        };
-    }
-
-    public async Task<MsxContent> BuildLiveCategoryAsync(
-        HttpContext context, XtreamCredential credential, string categoryId)
-    {
-        var categories = await _xtream.GetCategoriesAsync(credential, "live");
-        var category = categories.FirstOrDefault(c => c.CategoryId == categoryId);
-        var channels = await _xtream.GetLiveAsync(credential, categoryId);
+        var activeId = ResolveCategoryId(categories, categoryId, _options.DefaultLiveCategory);
+        var active = categories.FirstOrDefault(c => c.CategoryId == activeId);
+        var channels = await _xtream.GetLiveAsync(credential, activeId);
         var playbackBase = await _xtream.ResolvePlaybackBaseAsync(credential);
 
-        var visible = channels.Take(_options.MaxChannelItems).ToList();
+        var visible = channels.Take(take ?? _options.MaxChannelItems).ToList();
 
-        return new MsxContent
+        var cards = visible.Select(channel => new MsxContentItem
         {
-            Type = "list",
-            Headline = category?.CategoryName ?? "Canais",
-            Hint = $"{visible.Count} canais",
-            Template = new MsxTemplate
-            {
-                Type = "separate",
-                Layout = "0,1,12,1",
-                Color = "msx-glass",
-                ImageFiller = "height-left"
-            },
-            Items = visible.Select(channel => new MsxContentItem
-            {
-                Title = channel.Name,
-                Image = NormalizeImage(channel.StreamIcon),
-                ImageWidth = 0.18,
-                Action = $"video:{credential.BuildFrom(playbackBase, "live", channel.StreamId, "m3u8")}",
-                PlayerLabel = channel.Name
-            }).ToList()
-        };
+            // "default" (e nao "separate"): o "separate" reserva uma linha da
+            // celula para o titulo (cartao de poster). Aqui o titulo fica ao
+            // lado da imagem, dentro da mesma celula.
+            Type = "default",
+            Title = channel.Name,
+            Image = NormalizeImage(channel.StreamIcon),
+            ImageWidth = ChannelImageWidth,
+            ImageFiller = "fit",
+            Color = "msx-glass",
+            Action = $"video:{credential.BuildFrom(playbackBase, "live", channel.StreamId, "m3u8")}",
+            PlayerLabel = channel.Name
+        }).ToList();
+
+        return BuildBrowser(
+            categories,
+            activeId,
+            HeadlineName(active?.CategoryName, "Canais"),
+            "canais",
+            id => ContentUrl(context, credential, $"live/{id}.json"),
+            ContentUrl(context, credential, "live-categories.json"),
+            cards,
+            ChannelPerPage,
+            PlaceChannelCard);
     }
+
+    /// <summary>Lista completa de categorias de TV (destino do "Mais categorias").</summary>
+    public Task<MsxContent> BuildLiveCategoriesAsync(HttpContext context, XtreamCredential credential) =>
+        BuildCategoriesAsync(
+            _xtream.GetCategoriesAsync(credential, "live"),
+            "Categorias de TV",
+            id => ContentUrl(context, credential, $"live/{id}.json"));
 
     // ------------------------------------------------------------------
     // Telas 3 e 4 - Filmes e Series (navegador no estilo XCIPTV)
@@ -266,6 +257,43 @@ public sealed class MsxContentFactory
     private const int SidebarWindow = SidebarSlots - 2;
 
     /// <summary>
+    /// Largura do card de canal (em colunas da grade comprimida). O card de
+    /// canal e horizontal: logo do canal a esquerda, nome a direita.
+    /// </summary>
+    private const int ChannelCardColumns = 6;
+
+    /// <summary>Cards de canal por linha e por pagina.</summary>
+    private const int ChannelCardsPerRow = (GridColumns - SidebarColumns) / ChannelCardColumns;
+    private const int ChannelPerPage = ChannelCardsPerRow * GridRows;
+
+    /// <summary>
+    /// Largura da imagem dentro do card de canal. O MSX mede a imagem na
+    /// mesma unidade do "layout" do item (colunas da grade), entao 1.8 de 6
+    /// colunas = 30% do card, deixando o nome do canal ao lado.
+    /// </summary>
+    private const double ChannelImageWidth = 1.8;
+
+    /// <summary>Posiciona um cartaz de filme/serie na grade da area de conteudo.</summary>
+    private static void PlacePoster(MsxContentItem item, int index)
+    {
+        var column = index % PosterPerRow;
+        var row = index / PosterPerRow;
+
+        item.Layout =
+            $"{SidebarColumns + column * PosterColumns},{row * PosterHeight},{PosterColumns},{PosterHeight}";
+    }
+
+    /// <summary>Posiciona um card de canal na grade da area de conteudo.</summary>
+    private static void PlaceChannelCard(MsxContentItem item, int index)
+    {
+        var column = index % ChannelCardsPerRow;
+        var row = index / ChannelCardsPerRow;
+
+        item.Layout =
+            $"{SidebarColumns + column * ChannelCardColumns},{row},{ChannelCardColumns},1";
+    }
+
+    /// <summary>
     /// Tela de Filmes no estilo XCIPTV: barra lateral com as categorias a
     /// esquerda e a grade de cartazes (proporcao poster) a direita. O tipo
     /// "list" empilha as paginas na vertical: navegar para baixo carrega
@@ -305,11 +333,13 @@ public sealed class MsxContentFactory
         return BuildBrowser(
             categories,
             activeId,
-            active?.CategoryName ?? "Filmes",
+            HeadlineName(active?.CategoryName, "Filmes"),
             "filmes",
             id => ContentUrl(context, credential, $"vod/{id}.json"),
             ContentUrl(context, credential, "vod-categories.json"),
-            posters);
+            posters,
+            PosterPerPage,
+            PlacePoster);
     }
 
     /// <summary>
@@ -347,18 +377,23 @@ public sealed class MsxContentFactory
         return BuildBrowser(
             categories,
             activeId,
-            active?.CategoryName ?? "Séries",
+            HeadlineName(active?.CategoryName, "Séries"),
             "séries",
             id => ContentUrl(context, credential, $"series/{id}.json"),
             ContentUrl(context, credential, "series-categories.json"),
-            posters);
+            posters,
+            PosterPerPage,
+            PlacePoster);
     }
 
     /// <summary>
-    /// Monta o navegador: barra lateral de categorias + grade de cartazes
+    /// Monta o navegador: barra lateral de categorias + area de conteudo
     /// paginada na vertical. A barra lateral e montada por pagina porque a
     /// janela de categorias avanca junto com a rolagem (a grade do MSX tem
     /// apenas 8 linhas, entao uma coluna so comporta 8 categorias por vez).
+    ///
+    /// A area de conteudo e generica: "entries" sao os itens (cartazes de
+    /// filme/serie ou cards de canal) e "place" posiciona cada um na grade.
     /// </summary>
     private MsxContent BuildBrowser(
         List<XtreamCategory> categories,
@@ -367,25 +402,24 @@ public sealed class MsxContentFactory
         string unit,
         Func<string, string> categoryUrl,
         string categoriesUrl,
-        List<MsxContentItem> posters)
+        List<MsxContentItem> entries,
+        int perPage,
+        Action<MsxContentItem, int> place)
     {
         var pages = new List<MsxContentPage>();
 
-        for (var offset = 0; offset < posters.Count; offset += PosterPerPage)
+        for (var offset = 0; offset < entries.Count; offset += perPage)
         {
             var items = BuildSidebar(categories, activeCategoryId, categoryUrl, categoriesUrl, pages.Count);
 
-            for (var index = 0; index < PosterPerPage && offset + index < posters.Count; index++)
+            for (var index = 0; index < perPage && offset + index < entries.Count; index++)
             {
-                var poster = posters[offset + index];
-                var column = index % PosterPerRow;
-                var row = index / PosterPerRow;
+                var entry = entries[offset + index];
 
-                poster.Layout =
-                    $"{SidebarColumns + column * PosterColumns},{row * PosterHeight},{PosterColumns},{PosterHeight}";
-                poster.Focus = offset == 0 && index == 0 ? true : null;
+                place(entry, index);
+                entry.Focus = offset == 0 && index == 0 ? true : null;
 
-                items.Add(poster);
+                items.Add(entry);
             }
 
             pages.Add(new MsxContentPage { Items = items });
@@ -414,7 +448,7 @@ public sealed class MsxContentFactory
             Compress = true,
             Type = "list",
             Headline = headline,
-            Hint = $"{posters.Count} {unit}",
+            Hint = $"{entries.Count} {unit}",
             Pages = pages
         };
     }
@@ -559,6 +593,17 @@ public sealed class MsxContentFactory
         return text;
     }
 
+    /// <summary>
+    /// Titulo da tela: o nome da categoria sem o prefixo do provedor
+    /// ("Canais | Abertos" vira "Abertos"), com um texto de reserva.
+    /// </summary>
+    private static string HeadlineName(string? name, string fallback)
+    {
+        var clean = CleanCategoryName(name);
+
+        return clean == "Sem nome" ? fallback : clean;
+    }
+
     public async Task<MsxContent> BuildSeriesInfoAsync(
         HttpContext context, XtreamCredential credential, string seriesId)
     {
@@ -612,7 +657,7 @@ public sealed class MsxContentFactory
     /// </summary>
     public async Task<MsxMenu> BuildPreviewMenuAsync(HttpContext context, XtreamCredential credential)
     {
-        var live = await BuildLiveHubAsync(context, credential, take: 8);
+        var live = await BuildLiveBrowserAsync(context, credential, take: ChannelPerPage);
         var vod = await BuildVodBrowserAsync(context, credential, take: PosterPerPage);
         var series = await BuildSeriesBrowserAsync(context, credential, take: PosterPerPage);
 

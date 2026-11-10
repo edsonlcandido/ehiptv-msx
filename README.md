@@ -9,16 +9,16 @@ as telas de conteúdo — tudo gerado a partir do provedor, em tempo real.
 | # | Tela | Conteúdo |
 |---|------|----------|
 | 1 | **Início** | 3 cards: Canais ao vivo / Filmes e VOD / Séries e episódios |
-| 2 | **Canais** | Lista de categorias de TV (linhas largas) → canais da categoria (logo + nome), que abrem o player HLS |
+| 2 | **Canais** | Barra lateral de categorias de TV à esquerda + cards horizontais à direita (logo do canal + nome), que abrem o player HLS; rolar para baixo carrega mais canais |
 | 3 | **Filmes** | Barra lateral de categorias à esquerda + grade de pôsteres verticais à direita; rolar para baixo carrega mais filmes → reproduz (`/movie/….mp4`) |
 | 4 | **Séries** | Mesmo desenho da tela de Filmes → página de episódios (`S01E01 - …`) → reproduz (`/series/….mp4`) |
 
 O menu lateral (coluna da esquerda) traz `Início`, `Canais`, `Filmes`, `Séries` e todas as
 categorias de cada seção.
 
-## Filmes e Séries: navegador no estilo XCIPTV
+## Navegador no estilo XCIPTV (Canais, Filmes e Séries)
 
-As telas 3 e 4 usam a **grade comprimida do MSX** (`compress: true` → 16×8 em vez de 12×6)
+As telas 2, 3 e 4 usam a **grade comprimida do MSX** (`compress: true` → 16×8 em vez de 12×6)
 e um Content Root do tipo `list`, montado com `pages` posicionadas à mão:
 
 ```
@@ -37,16 +37,22 @@ e um Content Root do tipo `list`, montado com `pages` posicionadas à mão:
   demais entram numa **janela que avança a cada página rolada** (6 por página) e a
   última vaga é **“Mais categorias”**, que abre a lista completa com todas as
   categorias do provedor.
-- **Grade (colunas 4–15)**: 6 cartazes por linha × 2 linhas = **12 por página**.
-  Cada cartaz ocupa 2 colunas × 4 linhas; com o item do tipo `separate`, 3 linhas
+- **Grade de Filmes/Séries (colunas 4–15)**: 6 cartazes por linha × 2 linhas = **12 por
+  página**. Cada cartaz ocupa 2 colunas × 4 linhas; com o item do tipo `separate`, 3 linhas
   são de imagem (240×405 px em 1080p — proporção de poster vertical) e 1 linha é a
   faixa do título.
+- **Cards de Canais (colunas 4–15)**: **2 cards por linha × 8 linhas = 16 por página**.
+  Cada card ocupa 6 colunas × 1 linha e é um item do tipo `default` com `imageWidth: 1.8`
+  (o MSX mede a imagem na mesma unidade do `layout` — 1,8 de 6 colunas ≈ 30% do card):
+  o **logo do canal fica à esquerda** e o **nome do canal à direita**. O `imageFiller: "fit"`
+  mostra a logomarca inteira, sem corte.
 - **Scroll vertical**: o tipo `list` empilha as páginas na vertical. Cada página
-  seguinte traz mais 12 cartazes da mesma categoria (e a janela da barra lateral
+  seguinte traz mais conteúdo da mesma categoria (e a janela da barra lateral
   anda junto), então navegar para baixo carrega conteúdo novo.
-- A tela abre focando o primeiro cartaz (e não a barra lateral).
+- A tela abre focando o primeiro item da área de conteúdo (e não a barra lateral).
 
-O limite de itens por tela é `MaxPosterItems` (padrão 672 → 56 páginas de 12 cartazes).
+O limite de itens por tela é `MaxPosterItems` (padrão 672 → 56 páginas de 12 cartazes) para
+Filmes/Séries e `MaxChannelItems` (padrão 1200 → 75 páginas de 16 canais) para Canais.
 
 ## A credencial vai no primeiro trecho da URL
 
@@ -82,8 +88,9 @@ e o `X-Forwarded-Proto` para montar as URLs públicas.
 | `GET /msx/start.json` | Start Object (aponta para a tela inicial) |
 | `GET /msx/menu.json` | Menu Root (barra lateral, opcional) |
 | `GET /msx/content/home.json` | Tela 1 — Início (os 3 itens) |
-| `GET /msx/content/live.json` | Tela 2 — Canais (categorias) |
-| `GET /msx/content/live/{categoryId}.json` | Canais da categoria |
+| `GET /msx/content/live.json` | Tela 2 — Canais (navegador com barra lateral) |
+| `GET /msx/content/live/{categoryId}.json` | Canais da categoria (mesmo navegador) |
+| `GET /msx/content/live-categories.json` | Lista completa de categorias de TV |
 | `GET /msx/content/vod.json` | Tela 3 — Filmes (navegador com barra lateral) |
 | `GET /msx/content/vod/{categoryId}.json` | Filmes da categoria (mesmo navegador) |
 | `GET /msx/content/vod-categories.json` | Lista completa de categorias de filmes |
@@ -211,6 +218,7 @@ provedor entram por variável de ambiente (ver abaixo) ou pelo arquivo de secret
   "PlaybackBaseUrl": "",
   "DefaultVodCategory": "25",
   "DefaultSeriesCategory": "3178",
+  "DefaultLiveCategory": "1",
   "MaxPosterItems": 672,
   "MaxChannelItems": 1200
 }
@@ -234,6 +242,10 @@ provedor entram por variável de ambiente (ver abaixo) ou pelo arquivo de secret
 - `PlaybackBaseUrl` — base fixa das URLs de playback; tem prioridade sobre o
   `server_info`. Vazio = usar o `server_info`.
 - `MaxPosterItems` — teto de cartazes por tela de Filmes/Séries (padrão 672 → 56 páginas de 12 cartazes; o MSX aceita no máximo 1024 páginas no tipo `list` e 256 itens por página).
+- `MaxChannelItems` — teto de canais por tela de Canais (padrão 1200 → 75 páginas de 16 canais).
+- `DefaultLiveCategory` / `DefaultVodCategory` / `DefaultSeriesCategory` — categoria que abre
+  cada tela (`"1"` = *Canais | Abertos*). Se o id não existir no provedor, a primeira
+  categoria da lista é usada.
 
 ## Endereços do provedor (fora do repositório)
 
@@ -317,9 +329,9 @@ docker run -p 8080:8080 -e Xtream__PublicBaseUrl=http://<usuario>-<senha>.localh
   chamador alterar o que ficou guardado.
 - No MSX, `items` na raiz do Content Root **exige** `template` — sem isso o MSX ignora os
   itens em silêncio e mostra "Content Not Available".
-- As telas de Filmes e Séries usam `compress: true`, que troca a grade 12×6 pela 16×8
+- As telas de Canais, Filmes e Séries usam `compress: true`, que troca a grade 12×6 pela 16×8
   (25% menor por célula). É o que permite a barra lateral de categorias ao lado da grade
   de cartazes com proporção vertical. A barra lateral e a grade são `pages` posicionadas à
   mão (`layout: "x,y,w,h"`), não `template` + `items`.
-- O prefixo das categorias ("Filmes | ", "Series | ") é removido na barra lateral; o
-  `headline` da tela mantém o nome completo.
+- O prefixo das categorias ("Canais | ", "Filmes | ", "Series | ") é removido na barra
+  lateral e no `headline` da tela.

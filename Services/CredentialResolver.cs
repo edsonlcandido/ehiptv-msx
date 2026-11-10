@@ -49,6 +49,12 @@ public sealed class XtreamOptions
     public string DefaultSeriesCategory { get; set; } = "3178";
 
     /// <summary>
+    /// Categoria usada na tela inicial de Canais ("Canais | Abertos" no
+    /// provedor). Se o id nao existir, a primeira categoria e usada.
+    /// </summary>
+    public string DefaultLiveCategory { get; set; } = "1";
+
+    /// <summary>
     /// Limite de itens de uma tela de Filmes/Séries. Cada página do navegador
     /// tem 10 cartazes, então 672 itens = 68 páginas (o MSX aceita no máximo
     /// 1024 páginas no tipo "list" e 256 itens por página).

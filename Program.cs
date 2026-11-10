@@ -202,21 +202,30 @@ app.MapGet("/msx/content/home.json", (HttpContext context, CredentialResolver re
     return Results.Json(factory.BuildHome(context, credential), MsxJson.Options);
 });
 
-// Canais: hub de categorias.
+// Canais: navegador (barra lateral de categorias + cards horizontais).
 app.MapGet("/msx/content/live.json", async (HttpContext context, CredentialResolver resolver,
     MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildLiveHubAsync(context, credential);
+    var content = await factory.BuildLiveBrowserAsync(context, credential);
     return Results.Json(content, MsxJson.Options);
 });
 
-// Canais: lista de canais da categoria.
+// Canais: navegador da categoria (a barra lateral continua a esquerda).
 app.MapGet("/msx/content/live/{categoryId}.json", async (HttpContext context, string categoryId,
     CredentialResolver resolver, MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildLiveCategoryAsync(context, credential, categoryId);
+    var content = await factory.BuildLiveBrowserAsync(context, credential, categoryId);
+    return Results.Json(content, MsxJson.Options);
+});
+
+// Lista completa de categorias de TV (destino do "Mais categorias").
+app.MapGet("/msx/content/live-categories.json", async (HttpContext context, CredentialResolver resolver,
+    MsxContentFactory factory) =>
+{
+    var credential = resolver.Resolve(context);
+    var content = await factory.BuildLiveCategoriesAsync(context, credential);
     return Results.Json(content, MsxJson.Options);
 });
 
