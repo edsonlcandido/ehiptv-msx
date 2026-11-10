@@ -74,6 +74,12 @@ _ReSharper*/
 .env.local
 .env.*.local
 
+# Credenciais do Xtream Codes (nunca versionar)
+appsettings.Local.json
+appsettings.*.Local.json
+secrets.json
+xtream-credentials.json
+
 # OS files
 .DS_Store
 Thumbs.db
