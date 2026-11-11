@@ -141,19 +141,24 @@ public sealed class MsxContentFactory
             // mostra todas, e o conteudo abre em tela cheia.
             HomeCard("msx-white-soft:live-tv", "Canais ao vivo",
                 SectionMenuUrl(context, "live.json"), "menu"),
-            HomeCard("msx-white-soft:movie", "Filmes e VOD",
+            HomeCard("msx-white-soft:movie", "Filmes",
                 SectionMenuUrl(context, "vod.json"), "menu"),
-            HomeCard("msx-white-soft:video-library", "Séries e episódios",
+            HomeCard("msx-white-soft:video-library", "Séries",
                 SectionMenuUrl(context, "series.json"), "menu")
         ]
     };
 
+    /// <summary>
+    /// Card da tela inicial: icone grande no centro e o nome centralizado
+    /// embaixo ("alignment: center" centraliza o titulo do item).
+    /// </summary>
     private static MsxContentItem HomeCard(string icon, string title, string url, string action = "content") => new()
     {
         Type = "default",
         Icon = icon,
         IconSize = "large",
         Title = title,
+        Alignment = "center",
         Action = $"{action}:{url}"
     };
 
@@ -282,19 +287,22 @@ public sealed class MsxContentFactory
     /// do conteudo, que cabe so 8 por pagina.
     ///
     /// O primeiro item e a busca: ele abre o teclado na tela (Input Plugin do
-    /// MSX) e mostra os canais encontrados.
+    /// MSX) e mostra os canais encontrados. Logo abaixo vem a categoria que
+    /// abre a tela (a que esta selecionada), e depois as demais.
     /// </summary>
     public async Task<MsxMenu> BuildLiveMenuAsync(HttpContext context, XtreamCredential credential)
     {
         var categories = await _xtream.GetCategoriesAsync(credential, "live");
+        var activeId = ResolveCategoryId(categories, null, _options.DefaultLiveCategory);
 
         var menu = new List<MsxMenuItem> { SearchMenuItem(context, "live") };
 
-        menu.AddRange(categories.Select(category => new MsxMenuItem
+        menu.AddRange(OrderByActive(categories, activeId).Select(category => new MsxMenuItem
         {
             Id = $"cat_{category.CategoryId}",
             Label = CleanCategoryName(category.CategoryName),
-            Data = ContentUrl(context, credential, $"live/{category.CategoryId}.json")
+            Data = ContentUrl(context, credential, $"live/{category.CategoryId}.json"),
+            Focus = category.CategoryId == activeId ? true : null
         }));
 
         return new MsxMenu
@@ -334,19 +342,22 @@ public sealed class MsxContentFactory
     /// Menu (coluna nativa do app) com as categorias de filmes. Cada item
     /// abre a grade de cartazes da categoria, paginada pelo Paging Plugin.
     ///
-    /// O primeiro item e a busca (teclado na tela).
+    /// O primeiro item e a busca (teclado na tela) e, logo abaixo, a categoria
+    /// que abre a tela (a que esta selecionada).
     /// </summary>
     public async Task<MsxMenu> BuildVodMenuAsync(HttpContext context, XtreamCredential credential)
     {
         var categories = await _xtream.GetCategoriesAsync(credential, "vod");
+        var activeId = ResolveCategoryId(categories, null, _options.DefaultVodCategory);
 
         var menu = new List<MsxMenuItem> { SearchMenuItem(context, "vod") };
 
-        menu.AddRange(categories.Select(category => new MsxMenuItem
+        menu.AddRange(OrderByActive(categories, activeId).Select(category => new MsxMenuItem
         {
             Id = $"cat_{category.CategoryId}",
             Label = CleanCategoryName(category.CategoryName),
-            Data = PagingAction(context, $"vod/{category.CategoryId}.json")
+            Data = PagingAction(context, $"vod/{category.CategoryId}.json"),
+            Focus = category.CategoryId == activeId ? true : null
         }));
 
         return new MsxMenu
@@ -358,19 +369,22 @@ public sealed class MsxContentFactory
 
     /// <summary>
     /// Menu (coluna nativa do app) com as categorias de series. O primeiro
-    /// item e a busca (teclado na tela).
+    /// item e a busca (teclado na tela) e, logo abaixo, a categoria que abre
+    /// a tela (a que esta selecionada).
     /// </summary>
     public async Task<MsxMenu> BuildSeriesMenuAsync(HttpContext context, XtreamCredential credential)
     {
         var categories = await _xtream.GetCategoriesAsync(credential, "series");
+        var activeId = ResolveCategoryId(categories, null, _options.DefaultSeriesCategory);
 
         var menu = new List<MsxMenuItem> { SearchMenuItem(context, "series") };
 
-        menu.AddRange(categories.Select(category => new MsxMenuItem
+        menu.AddRange(OrderByActive(categories, activeId).Select(category => new MsxMenuItem
         {
             Id = $"cat_{category.CategoryId}",
             Label = CleanCategoryName(category.CategoryName),
-            Data = PagingAction(context, $"series/{category.CategoryId}.json")
+            Data = PagingAction(context, $"series/{category.CategoryId}.json"),
+            Focus = category.CategoryId == activeId ? true : null
         }));
 
         return new MsxMenu
@@ -378,6 +392,24 @@ public sealed class MsxContentFactory
             Headline = "Séries",
             Menu = menu
         };
+    }
+
+    /// <summary>
+    /// Coloca a categoria ativa (a que abre a tela) em primeiro, logo depois
+    /// da busca. As outras categorias mantem a ordem do provedor.
+    /// </summary>
+    private static List<XtreamCategory> OrderByActive(List<XtreamCategory> categories, string activeId)
+    {
+        var active = categories.FirstOrDefault(category => category.CategoryId == activeId);
+
+        if (active is null)
+        {
+            return categories;
+        }
+
+        return new[] { active }
+            .Concat(categories.Where(category => category.CategoryId != activeId))
+            .ToList();
     }
 
     /// <summary>

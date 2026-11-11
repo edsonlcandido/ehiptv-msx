@@ -8,7 +8,7 @@ as telas de conteúdo — tudo gerado a partir do provedor, em tempo real.
 
 | # | Tela | Conteúdo |
 |---|------|----------|
-| 1 | **Início** | 3 cards: Canais ao vivo / Filmes e VOD / Séries e episódios |
+| 1 | **Início** | 3 cards com o nome centralizado: Canais ao vivo / Filmes / Séries |
 | 2 | **Canais** | Coluna nativa do app com **todas as categorias de TV** + lista de canais no estilo *Channel List* do MSX (logo, nome, **programa no ar**, horário e barra de progresso) |
 | 3 | **Filmes** | Coluna nativa do app com **todas as categorias de filmes** + grade de pôsteres verticais que **carrega mais ao rolar** (Paging Plugin) → reproduz (`/movie/….mp4`) |
 | 4 | **Séries** | Mesmo desenho da tela de Filmes → **página de detalhe** (vitrine com capa + sinopse, episódios separados por temporada) → reproduz (`/series/….mp4`) |
@@ -188,6 +188,10 @@ de resultados em tela cheia, paginada** pelo Paging Plugin.
 - **O `data` do item de menu** usa `request:interaction:{ID}@{PLUGIN}` — **sem** o prefixo
   `content:`, que é sintaxe de *ação*. O `ID` do teclado é:
   `url | tipo | teclado | headline | fundo | extension | dica | placeholder | limite | inicial`.
+- **A ordem do menu**: primeiro vem a **busca**, logo abaixo a **categoria que abre a tela**
+  (a selecionada, com `focus: true` — o MSX já abre nela), e depois as demais categorias na
+  ordem do provedor. A categoria selecionada é a `DefaultLiveCategory` /
+  `DefaultVodCategory` / `DefaultSeriesCategory` (se o id não existir, a primeira da lista).
 - **O tipo do teclado é `default:3`** (e não `search`): o tipo `search` submete sozinho 3 s
   depois da última letra e o app saltaria para os resultados no meio da digitação. Com
   `default`, quem confirma é o botão ✓ do teclado, e o limite de 3 letras mantém o ✓

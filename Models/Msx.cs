@@ -50,6 +50,13 @@ public sealed class MsxMenuItem
     [JsonPropertyName("label")]
     public string? Label { get; set; }
 
+    /// <summary>
+    /// Marca o item como o selecionado do menu. O MSX foca este item ao abrir
+    /// o menu (e carrega o conteudo dele no painel direito).
+    /// </summary>
+    [JsonPropertyName("focus")]
+    public bool? Focus { get; set; }
+
     /// <summary>URL do Content Root Object ou o proprio Content Root Object.</summary>
     [JsonPropertyName("data")]
     public object? Data { get; set; }
