@@ -153,6 +153,58 @@ de episódios **separada por temporada**.
 - Limites de texto: sinopse da vitrine 200 caracteres e sinopse do episódio 220 (o MSX corta
   o resto) — é o que mantém o JSON leve (uma série com 800 episódios fica em ~300 KB).
 
+## Busca: "Pesquisar" no menu → teclado na tela → página de resultados
+
+O **primeiro item do menu** de Canais, Filmes e Séries é o botão **Pesquisar**. Ele abre o
+**Input Plugin do MSX** (o teclado virtual na tela), e o que for digitado abre uma **página
+de resultados em tela cheia, paginada** pelo Paging Plugin.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  PESQUISAR FILMES                                   FILMES            │
+│  Digite o nome do filme                                             │
+│  ┌──────────────────────────────────────────────────┐  ┌──────────┐ │
+│  │  batman                                             │  │   ✓      │ │
+│  └──────────────────────────────────────────────────┘  └──────────┘ │
+└──────────────────────────────────────────────────────────────────────┘
+                    ↓ (confirma no ✓)
+┌──────────────────────────────────────────────────────────────────────┐
+│  Resultados: batman (1/21)                          111 resultados    │
+│  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐  │
+│  │ 8.1    │ │ 7.4    │ │ 6.9    │ │ 6.5    │ │ 6.2    │ │ 5.9    │  │
+│  │ cartaz │ │ cartaz │ │ cartaz │ │ cartaz │ │ cartaz │ │ cartaz │  │
+│  └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+- **A busca é feita no servidor.** O provedor **ignora o parâmetro `search`** do
+  `player_api.php` (ele devolve o catálogo inteiro — o mesmo que faz com o `series_id` no
+  `get_series`). Então o app baixa o catálogo completo **uma vez** e o guarda em cache
+  (`SearchIndexCacheMinutes`, padrão 30 min) num índice enxuto (só os campos que a tela de
+  resultado precisa), filtrando localmente.
+- **O casamento ignora acento e maiúscula**: "acao" acha "Ação", "SIMPSONS" acha "Simpsons".
+  Quem **começa** com o texto procurado vem primeiro; depois, título mais curto.
+  `SearchMaxResults` (padrão 300) corta o excesso.
+- **O `data` do item de menu** usa `request:interaction:{ID}@{PLUGIN}` — **sem** o prefixo
+  `content:`, que é sintaxe de *ação*. O `ID` do teclado é:
+  `url | tipo | teclado | headline | fundo | extension | dica | placeholder | limite | inicial`.
+- **O tipo do teclado é `default:3`** (e não `search`): o tipo `search` submete sozinho 3 s
+  depois da última letra e o app saltaria para os resultados no meio da digitação. Com
+  `default`, quem confirma é o botão ✓ do teclado, e o limite de 3 letras mantém o ✓
+  desabilitado até o texto ter tamanho suficiente. `pt` = teclado português.
+- **Ao confirmar**, o service devolve `{"action": …}` apontando para a própria rota com `q=`
+  (consulta pronta) e o **Paging Plugin** — por isso a página de resultados é **em tela
+  cheia**: o teclado do plugin come ~6 das 8 linhas da grade e deixaria os resultados
+  espremidos.
+- **Canais** viram **linhas horizontais** (`layout: "0,0,16,1"`): logomarca à esquerda, nome
+  do canal e a categoria de origem no `stamp` (canto inferior direito).
+- **Filmes e séries** viram **cartazes** (`layout: "0,0,2,4"`), com a nota no `badge`.
+  Clicar num filme toca direto; clicar numa série abre a página de detalhe (com
+  `category_id` na URL, para o app achar os metadados).
+- **O Input Plugin fica em HTTP** (`http://msx.benzac.de/interaction/input.html`) de
+  propósito: carregado em contexto seguro, o plugin reescreve a URL do content service para
+  `https` e mataria o app — que só serve HTTP (o provedor é só HTTP).
+
 ## A credencial vai no primeiro trecho da URL
 
 O usuário e a senha **sempre ficam no primeiro trecho do host** (prefixo) e valem para
@@ -204,6 +256,8 @@ e o `X-Forwarded-Proto` para montar as URLs públicas.
 | `GET /msx/content/series-info/{seriesId}.json?category_id=…` | Detalhe da série (vitrine + episódios por temporada) |
 | `GET /msx/content/series-seasons/{seriesId}.json?category_id=…` | Lista de temporadas da série |
 | `GET /msx/content/series-season/{seriesId}/{season}.json?category_id=…` | Episódios de uma temporada |
+| `GET /msx/service/search/{kind}.json?input=…` | Content service do Input Plugin (devolve a ação da página de resultados) |
+| `GET /msx/service/search/{kind}.json?q=…&offset=…&limit=…` | Content service do Paging Plugin (página de resultados da busca) |
 | `GET /player_api.php` | API Xtream Codes padrão (veja abaixo) |
 | `GET /msx/diagnostico.json` | Diagnóstico do provedor (ver abaixo) |
 | `GET /msx/preview` | Preview no `msx.benzac.de` com o JSON em base64 |
@@ -329,7 +383,11 @@ provedor entram por variável de ambiente (ver abaixo) ou pelo arquivo de secret
   "MaxPosterItems": 672,
   "MaxChannelItems": 1200,
   "PagingPluginUrl": "http://msx.benzac.de/interaction/paging.html",
-  "PagingLimit": 16
+  "PagingLimit": 16,
+  "InputPluginUrl": "http://msx.benzac.de/interaction/input.html",
+  "SearchLimit": 16,
+  "SearchIndexCacheMinutes": 30,
+  "SearchMaxResults": 300
 }
 ```
 
@@ -360,6 +418,15 @@ provedor entram por variável de ambiente (ver abaixo) ou pelo arquivo de secret
   > content service quando a **página do plugin** é carregada por HTTPS. Como o app é
   > servido em HTTP (o provedor só serve HTTP), uma URL de plugin em HTTPS quebraria o
   > carregamento das capas.
+- `InputPluginUrl` — página do plugin do MSX do **teclado na tela** (padrão: a oficial,
+  `http://msx.benzac.de/interaction/input.html`). **Mantenha em `http://`**: carregado em
+  contexto seguro, o plugin reescreve `http://` por `https://` na URL do content service e o
+  app (que só serve HTTP) deixaria de responder.
+- `SearchLimit` — quantos resultados a busca pede por página (padrão 16 — uma página cheia
+  da grade comprimida).
+- `SearchIndexCacheMinutes` — minutos de cache do catálogo usado na busca (padrão 30). O
+  provedor ignora o `search`, então o catálogo inteiro é baixado uma vez e filtrado aqui.
+- `SearchMaxResults` — teto de resultados de uma busca (padrão 300).
 - `CategoriesCacheMinutes` — minutos de cache da lista de categorias (padrão 5). O
   provedor **cria, renomeia e apaga** as categorias de evento ao longo do dia
   (ex.: `Canais | Jogos do dia` → `Canais | Eventos de Hoje`, com os canais

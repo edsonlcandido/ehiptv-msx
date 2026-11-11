@@ -363,6 +363,69 @@ app.MapGet("/msx/content/series-categories.json", async (HttpContext context, Cr
     return Results.Json(content, MsxJson.Options);
 });
 
+// ---------------------------------------------------------------------------
+// Busca (Input Plugin do MSX)
+// ---------------------------------------------------------------------------
+
+// Content service da busca: e o que o Input Plugin chama quando o usuario
+// digita no teclado da tela. Recebe o texto ({INPUT}) e devolve a acao que
+// abre a pagina de resultados (tela cheia, paginada pelo Paging Plugin).
+//
+// A mesma rota serve a pagina de resultados, chamada pelo Paging Plugin com
+// o parametro "q" (a consulta ja vem pronta) e "offset"/"limit".
+//
+// O provedor ignora o parametro "search" do player_api.php, entao a busca e
+// feita aqui: o catalogo completo fica em cache no servidor e e filtrado
+// localmente (sem acento e sem diferenciar maiusculas).
+app.MapGet("/msx/service/search/{kind}.json", async (HttpContext context, string kind,
+    CredentialResolver resolver, MsxContentFactory factory) =>
+{
+    var credential = resolver.Resolve(context);
+
+    if (!credential.HasCredentials)
+    {
+        return Results.Json(new MsxServiceResponse
+        {
+            Response = new MsxResponseEnvelope
+            {
+                Status = 401,
+                Text = "Unauthorized",
+                Message = "Informe usuario e senha."
+            }
+        }, MsxJson.Options);
+    }
+
+    // Chamada do Input Plugin (teclado): devolve a acao da pagina de resultados.
+    if (context.Request.Query.ContainsKey("input"))
+    {
+        var input = context.Request.Query["input"].FirstOrDefault() ?? string.Empty;
+
+        return Results.Json(new MsxServiceResponse
+        {
+            Response = new MsxResponseEnvelope
+            {
+                Status = 200,
+                Text = "OK",
+                Data = new { action = factory.SearchResultAction(context, kind, input) }
+            }
+        }, MsxJson.Options);
+    }
+
+    // Chamada do Paging Plugin (a pagina de resultados).
+    var query = context.Request.Query["q"].FirstOrDefault();
+    var (offset, limit) = ReadPaging(context, 16);
+
+    app.Logger.LogInformation(
+        "Busca {Kind} '{Query}' offset={Offset} limit={Limit}", kind, query ?? string.Empty, offset, limit);
+
+    var content = await factory.BuildSearchAsync(context, credential, kind, query, offset, limit);
+
+    return Results.Json(new MsxServiceResponse
+    {
+        Response = new MsxResponseEnvelope { Status = 200, Text = "OK", Data = content }
+    }, MsxJson.Options);
+});
+
 // Detalhe da serie: vitrine (capa + sinopse) no cabecalho fixo e a lista de
 // episodios separada por temporada. O "category_id" (a categoria de onde o
 // cartaz foi clicado) ajuda a achar os metadados da serie com o provedor.

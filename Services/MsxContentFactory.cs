@@ -280,20 +280,27 @@ public sealed class MsxContentFactory
     /// Menu (coluna nativa do app) com as categorias de TV. A coluna do MSX
     /// rola e mostra todas as categorias — diferente da barra lateral dentro
     /// do conteudo, que cabe so 8 por pagina.
+    ///
+    /// O primeiro item e a busca: ele abre o teclado na tela (Input Plugin do
+    /// MSX) e mostra os canais encontrados.
     /// </summary>
     public async Task<MsxMenu> BuildLiveMenuAsync(HttpContext context, XtreamCredential credential)
     {
         var categories = await _xtream.GetCategoriesAsync(credential, "live");
 
+        var menu = new List<MsxMenuItem> { SearchMenuItem(context, "live") };
+
+        menu.AddRange(categories.Select(category => new MsxMenuItem
+        {
+            Id = $"cat_{category.CategoryId}",
+            Label = CleanCategoryName(category.CategoryName),
+            Data = ContentUrl(context, credential, $"live/{category.CategoryId}.json")
+        }));
+
         return new MsxMenu
         {
             Headline = "Canais",
-            Menu = categories.Select(category => new MsxMenuItem
-            {
-                Id = $"cat_{category.CategoryId}",
-                Label = CleanCategoryName(category.CategoryName),
-                Data = ContentUrl(context, credential, $"live/{category.CategoryId}.json")
-            }).ToList()
+            Menu = menu
         };
     }
 
@@ -326,37 +333,50 @@ public sealed class MsxContentFactory
     /// <summary>
     /// Menu (coluna nativa do app) com as categorias de filmes. Cada item
     /// abre a grade de cartazes da categoria, paginada pelo Paging Plugin.
+    ///
+    /// O primeiro item e a busca (teclado na tela).
     /// </summary>
     public async Task<MsxMenu> BuildVodMenuAsync(HttpContext context, XtreamCredential credential)
     {
         var categories = await _xtream.GetCategoriesAsync(credential, "vod");
 
+        var menu = new List<MsxMenuItem> { SearchMenuItem(context, "vod") };
+
+        menu.AddRange(categories.Select(category => new MsxMenuItem
+        {
+            Id = $"cat_{category.CategoryId}",
+            Label = CleanCategoryName(category.CategoryName),
+            Data = PagingAction(context, $"vod/{category.CategoryId}.json")
+        }));
+
         return new MsxMenu
         {
             Headline = "Filmes",
-            Menu = categories.Select(category => new MsxMenuItem
-            {
-                Id = $"cat_{category.CategoryId}",
-                Label = CleanCategoryName(category.CategoryName),
-                Data = PagingAction(context, $"vod/{category.CategoryId}.json")
-            }).ToList()
+            Menu = menu
         };
     }
 
-    /// <summary>Menu (coluna nativa do app) com as categorias de series.</summary>
+    /// <summary>
+    /// Menu (coluna nativa do app) com as categorias de series. O primeiro
+    /// item e a busca (teclado na tela).
+    /// </summary>
     public async Task<MsxMenu> BuildSeriesMenuAsync(HttpContext context, XtreamCredential credential)
     {
         var categories = await _xtream.GetCategoriesAsync(credential, "series");
 
+        var menu = new List<MsxMenuItem> { SearchMenuItem(context, "series") };
+
+        menu.AddRange(categories.Select(category => new MsxMenuItem
+        {
+            Id = $"cat_{category.CategoryId}",
+            Label = CleanCategoryName(category.CategoryName),
+            Data = PagingAction(context, $"series/{category.CategoryId}.json")
+        }));
+
         return new MsxMenu
         {
             Headline = "Séries",
-            Menu = categories.Select(category => new MsxMenuItem
-            {
-                Id = $"cat_{category.CategoryId}",
-                Label = CleanCategoryName(category.CategoryName),
-                Data = PagingAction(context, $"series/{category.CategoryId}.json")
-            }).ToList()
+            Menu = menu
         };
     }
 
@@ -476,6 +496,200 @@ public sealed class MsxContentFactory
         Color = "msx-glass",
         ImageFiller = "cover"
     };
+
+    // ------------------------------------------------------------------
+    // Busca (Input Plugin do MSX)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Acao do Input Plugin do MSX: abre o teclado na tela, manda o texto
+    /// digitado para o content service e, com o resultado, abre a pagina de
+    /// resultados.
+    ///
+    /// O "data" do item de menu aceita "request:interaction:{ID}@{PLUGIN}"
+    /// (sem o prefixo "content:", que e sintaxe de acao e nao de "data").
+    ///
+    /// Campos do ID, na ordem em que o plugin le:
+    ///   url | tipo | teclado | headline | fundo | extension | dica |
+    ///   placeholder | limite | texto inicial
+    ///
+    /// O tipo e "default:3" (e nao "search") de proposito: o tipo "search"
+    /// submete sozinho 3 segundos depois da ultima letra e o app saltaria
+    /// para a pagina de resultados no meio da digitacao. Com "default" quem
+    /// confirma e o botao de ok do teclado, e o limite de 3 letras mantem o
+    /// botao desabilitado ate ter texto suficiente. "pt" = teclado portugues.
+    /// </summary>
+    public string SearchAction(HttpContext context, string kind)
+    {
+        var (headline, extension, hint, placeholder) = kind switch
+        {
+            "live" => ("Pesquisar canais", "Canais", "Digite o nome do canal", "Nome do canal"),
+            "series" => ("Pesquisar séries", "Séries", "Digite o nome da série", "Nome da série"),
+            _ => ("Pesquisar filmes", "Filmes", "Digite o nome do filme", "Nome do filme")
+        };
+
+        return $"request:interaction:{BaseUrl(context)}/msx/service/search/{kind}.json" +
+               $"?input={{INPUT}}&offset={{OFFSET}}&limit={{LIMIT}}" +
+               $"|default:3|pt|{headline}||{extension}|{hint}|{placeholder}|{_options.SearchLimit}" +
+               $"@{_options.InputPluginUrl}";
+    }
+
+    /// <summary>
+    /// Acao que o Input Plugin executa quando o usuario confirma a busca:
+    /// abre a pagina de resultados em tela cheia, paginada pelo Paging Plugin.
+    ///
+    /// A pagina de resultados e a mesma rota de busca, so que com o parametro
+    /// "q" (aqui a consulta ja vem pronta, sem as trocas do plugin de teclado).
+    /// </summary>
+    public string SearchResultAction(HttpContext context, string kind, string query)
+    {
+        var encoded = Uri.EscapeDataString(query ?? string.Empty);
+        var url = $"{BaseUrl(context)}/msx/service/search/{kind}.json" +
+                  $"?q={encoded}&offset={{OFFSET}}&limit={{LIMIT}}";
+
+        return $"content:request:interaction:{url}|{_options.SearchLimit}@{_options.PagingPluginUrl}";
+    }
+
+    /// <summary>Primeiro item do menu: a busca (abre o teclado na tela).</summary>
+    private MsxMenuItem SearchMenuItem(HttpContext context, string kind) => new()
+    {
+        Id = $"search_{kind}",
+        Icon = "search",
+        Label = "Pesquisar",
+        Data = SearchAction(context, kind)
+    };
+
+    /// <summary>
+    /// Tela de resultados da busca.
+    ///
+    /// Canais viram linhas horizontais (logomarca + nome, no mesmo estilo da
+    /// lista de canais) e filmes/series viram cartazes.
+    ///
+    /// O resultado vem paginado: o plugin pede a proxima pagina (offset/limit)
+    /// quando o ultimo item da pagina fica visivel.
+    /// </summary>
+    public async Task<MsxContent> BuildSearchAsync(
+        HttpContext context,
+        XtreamCredential credential,
+        string kind,
+        string? query,
+        int offset = 0,
+        int limit = 16)
+    {
+        var index = await _xtream.GetSearchIndexAsync(credential, kind);
+        var matches = MatchEntries(index, query).ToList();
+        var visible = matches.Skip(offset).Take(limit).ToList();
+
+        List<MsxContentItem> items;
+        MsxTemplate template;
+
+        if (kind == "live")
+        {
+            var playbackBase = await _xtream.ResolvePlaybackBaseAsync(credential);
+
+            template = LiveSearchTemplate();
+
+            items = visible.Select(entry => new MsxContentItem
+            {
+                Id = $"srch_ch_{entry.Id}",
+                Image = NormalizeImage(entry.Cover),
+                ImageWidth = LiveSearchImageWidth,
+                ImageFiller = "fit",
+                Title = entry.Title,
+                Stamp = CleanCategoryName(entry.CategoryName),
+                Action = $"video:{credential.BuildFrom(playbackBase, "live", entry.Id, "m3u8")}",
+                PlayerLabel = entry.Title
+            }).ToList();
+        }
+        else if (kind == "series")
+        {
+            template = PosterTemplate();
+
+            items = visible.Select(entry => new MsxContentItem
+            {
+                Id = $"srch_ser_{entry.Id}",
+                Title = TitleWithYear(entry.Title, entry.Year),
+                Image = NormalizeImage(entry.Cover),
+                Badge = string.IsNullOrWhiteSpace(entry.Rating) ? null : entry.Rating,
+                Action = $"content:{SeriesInfoUrl(context, credential, entry.Id, entry.CategoryId)}",
+                PlayerLabel = entry.Title
+            }).ToList();
+        }
+        else
+        {
+            var playbackBase = await _xtream.ResolvePlaybackBaseAsync(credential);
+
+            template = PosterTemplate();
+
+            items = visible.Select(entry => new MsxContentItem
+            {
+                Id = $"srch_mov_{entry.Id}",
+                Title = TitleWithYear(entry.Title, entry.Year),
+                Image = NormalizeImage(entry.Cover),
+                Badge = string.IsNullOrWhiteSpace(entry.Rating) ? null : entry.Rating,
+                Action = $"video:{credential.BuildFrom(playbackBase, "movie", entry.Id, SearchExtension(entry))}",
+                PlayerLabel = entry.Title
+            }).ToList();
+        }
+
+        return new MsxContent
+        {
+            // A grade do Input Plugin ja e comprimida (16x8): o "compress"
+            // impede que o plugin marque o template como "decompress".
+            Compress = true,
+            Type = "list",
+            Headline = $"Resultados: {query}",
+            Extension = $"{matches.Count} resultados",
+            Hint = matches.Count == 0
+                ? $"Nada encontrado para \"{query}\""
+                : $"{visible.Count} de {matches.Count}",
+            Template = template,
+            Items = items
+        };
+    }
+
+    /// <summary>
+    /// Filtra o indice pela busca. O casamento ignora acentos e maiusculas
+    /// ("acao" acha "Ação"); quem comeca com o texto procurado vem primeiro.
+    /// </summary>
+    private List<XtreamSearchEntry> MatchEntries(List<XtreamSearchEntry> index, string? query)
+    {
+        var key = XtreamClient.NormalizeSearchText(query);
+
+        if (key.Length == 0)
+        {
+            return [];
+        }
+
+        return index
+            .Where(entry => entry.SearchKey.Contains(key, StringComparison.Ordinal))
+            .OrderBy(entry => entry.SearchKey.StartsWith(key, StringComparison.Ordinal) ? 0 : 1)
+            .ThenBy(entry => entry.SearchKey.Length)
+            .ThenBy(entry => entry.Title, StringComparer.OrdinalIgnoreCase)
+            .Take(Math.Max(1, _options.SearchMaxResults))
+            .ToList();
+    }
+
+    /// <summary>Extensao do arquivo do filme (mp4, mkv...).</summary>
+    private static string SearchExtension(XtreamSearchEntry entry) =>
+        string.IsNullOrWhiteSpace(entry.Extension) ? "mp4" : entry.Extension!;
+
+    /// <summary>
+    /// Template da linha de canal na busca: linha larga de tela cheia, com a
+    /// logomarca a esquerda e o nome do canal ao lado.
+    /// </summary>
+    private static MsxTemplate LiveSearchTemplate() => new()
+    {
+        Type = "default",
+        Layout = "0,0,16,1",
+        Color = "msx-glass"
+    };
+
+    /// <summary>
+    /// Largura da logomarca na linha de canal da busca (em colunas da grade
+    /// comprimida de 16 colunas).
+    /// </summary>
+    private const double LiveSearchImageWidth = 1.6;
 
 
     /// <summary>Lista completa de categorias (destino do "Mais categorias").</summary>

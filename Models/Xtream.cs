@@ -197,6 +197,44 @@ public sealed class XtreamEpisode
 }
 
 /// <summary>
+/// Item resumido do catalogo, usado pelo indice de busca.
+///
+/// O provedor ignora o parametro "search" do player_api.php (ele devolve o
+/// catalogo inteiro), entao a busca acontece no servidor: o catalogo completo
+/// e guardado em cache e filtrado localmente. O indice guarda so o que a tela
+/// de resultado precisa, para nao segurar o JSON bruto na memoria.
+/// </summary>
+public sealed class XtreamSearchEntry
+{
+    /// <summary>stream_id (canal/filme) ou series_id (serie).</summary>
+    public string Id { get; set; } = string.Empty;
+
+    public string Title { get; set; } = string.Empty;
+
+    public string? Year { get; set; }
+
+    /// <summary>Logomarca do canal ou cartaz do filme/serie.</summary>
+    public string? Cover { get; set; }
+
+    public string? Rating { get; set; }
+
+    /// <summary>Categoria de origem (a serie usa isso para achar os metadados).</summary>
+    public string? CategoryId { get; set; }
+
+    /// <summary>Nome da categoria de origem (usado nos canais).</summary>
+    public string? CategoryName { get; set; }
+
+    /// <summary>Extensao do arquivo (filmes: mp4, mkv...).</summary>
+    public string? Extension { get; set; }
+
+    /// <summary>
+    /// Titulo normalizado (minusculas, sem acentos): e por ele que a busca
+    /// casa, para que "acao" ache "Ação" e "batman" ache "Batman".
+    /// </summary>
+    public string SearchKey { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// Resposta padrao do player_api.php (sem "action"): informacoes da conta e
 /// do servidor. O "server_info" e a origem da base das URLs de playback no
 /// padrao IPTV Xtream Codes.

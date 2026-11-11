@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ehiptv_msx.Models;
@@ -64,6 +66,156 @@ public sealed class XtreamClient
 
     public Task<List<XtreamSeries>> GetSeriesAsync(XtreamCredential credential, string categoryId) =>
         GetListAsync<XtreamSeries>(credential, "get_series", $"category_id={categoryId}", TimeSpan.FromMinutes(5));
+
+    // ------------------------------------------------------------------
+    // Busca
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Indice de busca do catalogo (canais, filmes ou series).
+    ///
+    /// O provedor ignora o parametro "search" do player_api.php: ele devolve
+    /// o catalogo inteiro, como faz com o "series_id" no get_series. Por isso a
+    /// busca acontece aqui: o catalogo completo e guardado em cache e
+    /// filtrado localmente, sem acento e sem diferenciar maiusculas.
+    ///
+    /// O indice guarda so os campos que a tela de resultado precisa (o JSON
+    /// bruto de 44 mil filmes ficaria pesado na memoria).
+    /// </summary>
+    public async Task<List<XtreamSearchEntry>> GetSearchIndexAsync(XtreamCredential credential, string kind)
+    {
+        var cacheKey = $"search-index:{kind}:{credential.Username}";
+
+        if (_cache.TryGetValue(cacheKey, out List<XtreamSearchEntry>? cached) && cached is not null)
+        {
+            return cached;
+        }
+
+        var entries = kind switch
+        {
+            "live" => await BuildLiveIndexAsync(credential),
+            "vod" => await BuildVodIndexAsync(credential),
+            "series" => await BuildSeriesIndexAsync(credential),
+            _ => []
+        };
+
+        _cache.Set(cacheKey, entries, SearchCatalogTtl);
+
+        return entries;
+    }
+
+    /// <summary>Canais: nome, logomarca e categoria de origem.</summary>
+    private async Task<List<XtreamSearchEntry>> BuildLiveIndexAsync(XtreamCredential credential)
+    {
+        var categories = await GetCategoriesAsync(credential, "live");
+
+        var names = categories.ToDictionary(
+            category => category.CategoryId,
+            category => category.CategoryName,
+            StringComparer.OrdinalIgnoreCase);
+
+        var streams = await GetListAsync<XtreamLiveStream>(
+            credential, "get_live_streams", null, SearchCatalogTtl);
+
+        return streams
+            .Select(stream => new XtreamSearchEntry
+            {
+                Id = stream.StreamId,
+                Title = stream.Name,
+                Cover = stream.StreamIcon,
+                CategoryId = stream.CategoryId,
+                CategoryName = names.TryGetValue(stream.CategoryId, out var name) ? name : null,
+                SearchKey = NormalizeSearchText(stream.Name)
+            })
+            .Where(entry => entry.SearchKey.Length > 0)
+            .ToList();
+    }
+
+    /// <summary>Filmes: titulo, ano, cartaz, nota e extensao do arquivo.</summary>
+    private async Task<List<XtreamSearchEntry>> BuildVodIndexAsync(XtreamCredential credential)
+    {
+        var movies = await GetListAsync<XtreamVodStream>(
+            credential, "get_vod_streams", null, SearchCatalogTtl);
+
+        return movies
+            .Select(movie =>
+            {
+                var title = string.IsNullOrWhiteSpace(movie.Title) ? movie.Name : movie.Title!;
+
+                return new XtreamSearchEntry
+                {
+                    Id = movie.StreamId,
+                    Title = title,
+                    Year = movie.Year,
+                    Cover = movie.StreamIcon,
+                    Rating = movie.Rating,
+                    CategoryId = movie.CategoryId,
+                    Extension = movie.ContainerExtension,
+                    SearchKey = NormalizeSearchText(title)
+                };
+            })
+            .Where(entry => entry.SearchKey.Length > 0)
+            .ToList();
+    }
+
+    /// <summary>Series: titulo, ano, cartaz e nota.</summary>
+    private async Task<List<XtreamSearchEntry>> BuildSeriesIndexAsync(XtreamCredential credential)
+    {
+        var series = await GetListAsync<XtreamSeries>(
+            credential, "get_series", null, SearchCatalogTtl);
+
+        return series
+            .Select(item =>
+            {
+                var title = string.IsNullOrWhiteSpace(item.Title) ? item.Name : item.Title!;
+
+                return new XtreamSearchEntry
+                {
+                    Id = item.SeriesId,
+                    Title = title,
+                    Year = item.Year,
+                    Cover = item.Cover,
+                    Rating = item.Rating,
+                    CategoryId = item.CategoryId,
+                    SearchKey = NormalizeSearchText(title)
+                };
+            })
+            .Where(entry => entry.SearchKey.Length > 0)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Tempo de cache do catalogo completo usado na busca. O catalogo de filmes
+    /// tem 44 mil itens (30 MB de JSON), entao ele e buscado uma vez e
+    /// reaproveitado por um tempo maior que o das listas por categoria.
+    /// </summary>
+    private TimeSpan SearchCatalogTtl =>
+        TimeSpan.FromMinutes(Math.Max(1, _options.SearchIndexCacheMinutes));
+
+    /// <summary>
+    /// Texto normalizado para a busca: minusculas e sem acentos, para que
+    /// "acao" ache "Ação" e "SIMPSONS" ache "Simpsons".
+    /// </summary>
+    public static string NormalizeSearchText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var decomposed = value.Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(decomposed.Length);
+
+        foreach (var character in decomposed)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark)
+            {
+                builder.Append(character);
+            }
+        }
+
+        return builder.ToString().ToLowerInvariant().Trim();
+    }
 
     /// <summary>
     /// Procura os metadados de uma serie (capa, sinopse, elenco, nota).

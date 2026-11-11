@@ -90,6 +90,38 @@ public sealed class XtreamOptions
     public int PagingLimit { get; set; } = 16;
 
     /// <summary>
+    /// Pagina do Input Plugin do MSX (o teclado na tela). O plugin abre o
+    /// teclado virtual, envia o texto digitado para o content service e mostra
+    /// o resultado embaixo do teclado.
+    ///
+    /// Fica em HTTP (e nao HTTPS) de proposito: o plugin reescreve a URL do
+    /// content service para https quando a pagina do plugin e carregada em
+    /// contexto seguro, e o app so serve HTTP (o provedor e so HTTP).
+    /// </summary>
+    public string InputPluginUrl { get; set; } = "http://msx.benzac.de/interaction/input.html";
+
+    /// <summary>
+    /// Quantos resultados a busca pede por vez ao content service. O plugin
+    /// carrega a proxima pagina quando o ultimo resultado da pagina fica
+    /// visivel.
+    /// </summary>
+    public int SearchLimit { get; set; } = 16;
+
+    /// <summary>
+    /// Minutos de cache do catalogo completo usado na busca. O provedor ignora
+    /// o parametro "search", entao o catalogo inteiro e baixado uma vez e
+    /// filtrado no servidor: sem esse cache, cada busca baixaria de novo
+    /// 44 mil filmes.
+    /// </summary>
+    public int SearchIndexCacheMinutes { get; set; } = 30;
+
+    /// <summary>
+    /// Numero maximo de resultados considerados em uma busca (o catalogo tem
+    /// 44 mil filmes, mas o que interessa cabe na primeira centena).
+    /// </summary>
+    public int SearchMaxResults { get; set; } = 300;
+
+    /// <summary>
     /// Deriva a base das URLs de playback do "server_info" devolvido pelo
     /// player_api.php (padrao IPTV Xtream Codes). Desligue com
     /// Xtream__UseServerInfo=false para usar sempre o host do painel.
