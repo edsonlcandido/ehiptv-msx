@@ -91,6 +91,14 @@ public sealed class MsxContent
 
     [JsonPropertyName("pages")]
     public List<MsxContentPage>? Pages { get; set; }
+
+    /// <summary>
+    /// Pagina de cabecalho (Content Page Object): a "vitrine" fixa no topo da
+    /// tela, enquanto a lista de itens rola embaixo. So vale quando o
+    /// "template" e os "items" tambem estao presentes.
+    /// </summary>
+    [JsonPropertyName("header")]
+    public MsxContentPage? Header { get; set; }
 }
 
 /// <summary>Content Page Object: uma "tela" dentro de um Content Root.</summary>
@@ -236,11 +244,47 @@ public sealed class MsxContentItem
     [JsonPropertyName("badgeColor")]
     public string? BadgeColor { get; set; }
 
+    /// <summary>Selo no canto inferior direito (ex.: duracao do episodio).</summary>
+    [JsonPropertyName("stamp")]
+    public string? Stamp { get; set; }
+
+    [JsonPropertyName("stampColor")]
+    public string? StampColor { get; set; }
+
     [JsonPropertyName("tag")]
     public string? Tag { get; set; }
 
     [JsonPropertyName("tagColor")]
     public string? TagColor { get; set; }
+
+    /// <summary>
+    /// Alinhamento do conteudo ("left" | "center" | "right" | "justify").
+    /// Com "separation-text-right" o texto (sinopse) fica na area direita e o
+    /// titulo (codigo do episodio) na area esquerda.
+    /// </summary>
+    [JsonPropertyName("alignment")]
+    public string? Alignment { get; set; }
+
+    /// <summary>
+    /// Separacao entre a area esquerda (rotulo/titulo) e a direita (texto).
+    /// Valor relativo de 0.0 a 1.0.
+    /// </summary>
+    [JsonPropertyName("separation")]
+    public double? Separation { get; set; }
+
+    /// <summary>
+    /// Centralizacao vertical ("title" | "text" | "label" | "badge" | "stamp").
+    /// </summary>
+    [JsonPropertyName("concentration")]
+    public string? Concentration { get; set; }
+
+    /// <summary>
+    /// Quais textos sao cortados com reticencias ("title" | "text" | ...,
+    /// separados por "|"). Sem isso o texto vaza e fica cortado no meio da
+    /// linha.
+    /// </summary>
+    [JsonPropertyName("truncation")]
+    public string? Truncation { get; set; }
 
     [JsonPropertyName("image")]
     public string? Image { get; set; }

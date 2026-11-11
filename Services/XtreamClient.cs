@@ -65,6 +65,52 @@ public sealed class XtreamClient
     public Task<List<XtreamSeries>> GetSeriesAsync(XtreamCredential credential, string categoryId) =>
         GetListAsync<XtreamSeries>(credential, "get_series", $"category_id={categoryId}", TimeSpan.FromMinutes(5));
 
+    /// <summary>
+    /// Procura os metadados de uma serie (capa, sinopse, elenco, nota).
+    ///
+    /// O provedor ignora o "series_id" no "get_series" e devolve o catalogo
+    /// inteiro, entao a serie e procurada dentro da lista da categoria. Como a
+    /// tela de detalhes sempre vem de uma grade de categoria, o "categoryId"
+    /// resolve na primeira tentativa; sem ele (ou se a serie nao estiver la),
+    /// algumas outras categorias sao varridas em paralelo.
+    /// </summary>
+    public async Task<XtreamSeries?> FindSeriesAsync(
+        XtreamCredential credential, string seriesId, string? categoryId = null)
+    {
+        if (!string.IsNullOrWhiteSpace(categoryId))
+        {
+            var inCategory = (await GetSeriesAsync(credential, categoryId!))
+                .FirstOrDefault(series => series.SeriesId == seriesId);
+
+            if (inCategory is not null)
+            {
+                return inCategory;
+            }
+        }
+
+        var categories = await GetCategoriesAsync(credential, "series");
+
+        var candidates = categories
+            .Where(category => category.CategoryId != categoryId)
+            .Take(SeriesScanLimit)
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        var lists = await Task.WhenAll(
+            candidates.Select(category => GetSeriesAsync(credential, category.CategoryId)));
+
+        return lists
+            .SelectMany(list => list)
+            .FirstOrDefault(series => series.SeriesId == seriesId);
+    }
+
+    /// <summary>Quantas categorias de series sao varridas quando a serie nao esta na categoria informada.</summary>
+    private const int SeriesScanLimit = 6;
+
     public Task<XtreamSeriesInfo?> GetSeriesInfoAsync(XtreamCredential credential, string seriesId) =>
         GetAsync<XtreamSeriesInfo>(credential, "get_series_info", $"series_id={seriesId}", TimeSpan.FromMinutes(30));
 

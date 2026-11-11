@@ -451,7 +451,7 @@ public sealed class MsxContentFactory
                 Title = TitleWithYear(title, item.Year),
                 Image = NormalizeImage(item.Cover),
                 Badge = string.IsNullOrWhiteSpace(item.Rating) ? null : item.Rating,
-                Action = $"content:{ContentUrl(context, credential, $"series-info/{item.SeriesId}.json")}",
+                Action = $"content:{SeriesInfoUrl(context, credential, item.SeriesId, activeId)}",
                 PlayerLabel = title,
                 Focus = offset == 0 && index == 0 ? true : null
             };
@@ -571,45 +571,370 @@ public sealed class MsxContentFactory
         return clean == "Sem nome" ? fallback : clean;
     }
 
+    // ------------------------------------------------------------------
+    // Detalhe da serie: vitrine + temporadas + episodios
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Grade da linha de episodio (1 linha da grade 12x6). Com 1 linha a
+    /// sinopse fica a direita do codigo (separacao + alinhamento) e a duracao
+    /// no canto inferior direito (stamp).
+    /// </summary>
+    private const string EpisodeRowLayout = "0,0,12,1";
+
+    /// <summary>
+    /// Tamanho maximo da sinopse do episodio. Na tela ela aparece em uma
+    /// linha (o MSX corta com reticencias), entao limitar aqui deixa o JSON
+    /// da pagina leve.
+    /// </summary>
+    private const int EpisodePlotLength = 220;
+
+    /// <summary>
+    /// Tamanho maximo da sinopse na vitrine. A vitrine tem 2 linhas de grade:
+    /// a sinopse ocupa 3 linhas e o titulo/meta ficam embaixo (com mais texto
+    /// a sinopse invade a linha do titulo).
+    /// </summary>
+    private const int BannerPlotLength = 200;
+
+    /// <summary>
+    /// Pagina de detalhe de uma serie: a "vitrine" (capa, sinopse, nota,
+    /// elenco) fica fixa no cabecalho e, embaixo, a lista de episodios
+    /// separada por temporada.
+    /// </summary>
+    /// <param name="seasonNumber">Quando informado, mostra so uma temporada.</param>
     public async Task<MsxContent> BuildSeriesInfoAsync(
-        HttpContext context, XtreamCredential credential, string seriesId)
+        HttpContext context,
+        XtreamCredential credential,
+        string seriesId,
+        string? categoryId = null,
+        int? seasonNumber = null)
     {
+        var series = await _xtream.FindSeriesAsync(credential, seriesId, categoryId);
         var info = await _xtream.GetSeriesInfoAsync(credential, seriesId);
         var playbackBase = await _xtream.ResolvePlaybackBaseAsync(credential);
-        var episodes = (info?.Episodes ?? [])
-            .SelectMany(pair => pair.Value.Select(episode => (Season: pair.Key, Episode: episode)))
-            .OrderBy(pair => int.TryParse(pair.Season, out var season) ? season : 0)
-            .ThenBy(pair => int.TryParse(pair.Episode.EpisodeNum, out var number) ? number : 0)
+
+        var seasons = (info?.Seasons ?? [])
+            .OrderBy(season => season.SeasonNumber)
+            .ToList();
+
+        var items = new List<MsxContentItem>();
+        var totalEpisodes = 0;
+        var firstEpisodeAction = (string?)null;
+
+        foreach (var season in seasons)
+        {
+            var episodes = EpisodesOf(info, season.SeasonNumber);
+
+            if (episodes.Count == 0)
+            {
+                continue;
+            }
+
+            totalEpisodes += episodes.Count;
+
+            if (seasonNumber is not null && season.SeasonNumber != seasonNumber)
+            {
+                continue;
+            }
+
+            items.Add(SeasonBand(season, episodes.Count, SeriesSeasonUrl(context, credential, seriesId, season.SeasonNumber, categoryId)));
+
+            foreach (var episode in episodes)
+            {
+                var item = EpisodeItem(credential, playbackBase, season, episode);
+
+                firstEpisodeAction ??= item.Action;
+
+                items.Add(item);
+            }
+        }
+
+        var title = SeriesTitle(series);
+
+        return new MsxContent
+        {
+            Type = "list",
+            Headline = seasonNumber is null ? title : $"{title} · Temporada {seasonNumber}",
+            Extension = seasonNumber is null
+                ? $"{seasons.Count(seasons => EpisodesOf(info, seasons.SeasonNumber).Count > 0)} temporadas · {totalEpisodes} episódios"
+                : $"{items.Count - 1} episódios",
+            Template = new MsxTemplate
+            {
+                Type = "default",
+                Layout = EpisodeRowLayout,
+                Color = "msx-glass"
+            },
+            Items = items,
+            Header = SeriesHeader(
+                context, credential, series, seriesId, categoryId, firstEpisodeAction)
+        };
+    }
+
+    /// <summary>
+    /// Tela "Temporadas": as temporadas da serie, cada uma abrindo a lista de
+    /// episodes daquela temporada. Serve para series longas (o Simpsons tem 38
+    /// temporadas), onde rolar a lista inteira e impractical.
+    /// </summary>
+    public async Task<MsxContent> BuildSeriesSeasonsAsync(
+        HttpContext context,
+        XtreamCredential credential,
+        string seriesId,
+        string? categoryId = null)
+    {
+        var series = await _xtream.FindSeriesAsync(credential, seriesId, categoryId);
+        var info = await _xtream.GetSeriesInfoAsync(credential, seriesId);
+
+        var items = (info?.Seasons ?? [])
+            .OrderBy(season => season.SeasonNumber)
+            .Select(season => new
+            {
+                Season = season,
+                Episodes = EpisodesOf(info, season.SeasonNumber)
+            })
+            .Where(entry => entry.Episodes.Count > 0)
+            .Select(entry => new MsxContentItem
+            {
+                Id = $"season_{entry.Season.SeasonNumber}",
+                Image = NormalizeImage(entry.Season.Cover ?? entry.Season.CoverBig),
+                ImageWidth = 1.6,
+                ImageFiller = "cover",
+                Title = SeasonTitle(entry.Season),
+                Stamp = $"{entry.Episodes.Count} episódios",
+                Action = $"content:{SeriesSeasonUrl(context, credential, seriesId, entry.Season.SeasonNumber, categoryId)}"
+            })
             .ToList();
 
         return new MsxContent
         {
             Type = "list",
-            Headline = $"S{episodes.FirstOrDefault().Season ?? "01"} - {episodes.Count} episódios",
-            Hint = $"{episodes.Count} episódios",
+            Headline = $"Temporadas · {SeriesTitle(series)}",
+            Extension = $"{items.Count} temporadas",
             Template = new MsxTemplate
             {
                 Type = "default",
                 Layout = "0,0,12,1",
                 Color = "msx-glass"
             },
-            Items = episodes.Select(pair =>
-            {
-                var episode = pair.Episode;
-                var season = int.TryParse(pair.Season, out var seasonNumber) ? seasonNumber : 1;
-                var number = int.TryParse(episode.EpisodeNum, out var episodeNumber) ? episodeNumber : 1;
-                var episodeTitle = episode.Info?.Title ?? episode.Title ?? $"S{season:00}E{number:00}";
-                var extension = string.IsNullOrWhiteSpace(episode.ContainerExtension) ? "mp4" : episode.ContainerExtension!;
-
-                return new MsxContentItem
-                {
-                    Title = $"S{season:00}E{number:00} - {episodeTitle}",
-                    Action = $"video:{credential.BuildFrom(playbackBase, "series", episode.Id, extension)}",
-                    PlayerLabel = episodeTitle
-                };
-            }).ToList()
+            Items = items
         };
     }
+
+    /// <summary>
+    /// Cabecalho fixo da pagina de detalhe: a vitrine com a capa e a sinopse da
+    /// serie e os botoes de acao (Assistir / Temporadas).
+    /// </summary>
+    private MsxContentPage SeriesHeader(
+        HttpContext context,
+        XtreamCredential credential,
+        XtreamSeries? series,
+        string seriesId,
+        string? categoryId,
+        string? playAction)
+    {
+        var meta = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(series?.Year))
+        {
+            meta.Add(series!.Year!.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(series?.Genre))
+        {
+            meta.Add(series!.Genre!.Trim());
+        }
+
+        return new MsxContentPage
+        {
+            Items =
+            [
+                new MsxContentItem
+                {
+                    Id = "hero",
+                    Type = "teaser",
+                    Layout = "0,0,12,2",
+                    Image = NormalizeImage(series?.Cover),
+                    ImageWidth = 3,
+                    ImageFiller = "fit",
+                    Title = SeriesTitle(series),
+                    TitleHeader = meta.Count > 0 ? string.Join(" · ", meta) : null,
+                    Badge = string.IsNullOrWhiteSpace(series?.Rating) ? null : series!.Rating,
+                    Text = CleanText(series?.Plot, BannerPlotLength),
+                    Action = playAction
+                },
+                new MsxContentItem
+                {
+                    Id = "btn_play",
+                    Type = "button",
+                    Layout = "0,2,3,1",
+                    Label = "Assistir",
+                    Action = playAction
+                },
+                new MsxContentItem
+                {
+                    Id = "btn_seasons",
+                    Type = "button",
+                    Layout = "3,2,3,1",
+                    Label = "Temporadas",
+                    Action = $"content:{SeriesSeasonsUrl(context, credential, seriesId, categoryId)}"
+                }
+            ]
+        };
+    }
+
+    /// <summary>
+    /// Linha da lista de episodios: codigo (S01E01) a esquerda, sinopse a
+    /// direita e duracao no canto. O "resume:key" faz o MSX lembrar de onde
+    /// o usuario parou o episodio.
+    /// </summary>
+    private static MsxContentItem EpisodeItem(
+        XtreamCredential credential,
+        string playbackBase,
+        XtreamSeason season,
+        XtreamEpisode episode)
+    {
+        var seasonNumber = season.SeasonNumber > 0 ? season.SeasonNumber : episode.Season;
+        var number = EpisodeNumber(episode);
+        var code = $"S{seasonNumber:00}E{number:00}";
+        var raw = (episode.Info?.Title ?? episode.Title ?? string.Empty).Trim();
+        var name = raw.Length > 0 && !raw.Equals(code, StringComparison.OrdinalIgnoreCase) ? raw : null;
+        var extension = string.IsNullOrWhiteSpace(episode.ContainerExtension) ? "mp4" : episode.ContainerExtension!;
+
+        return new MsxContentItem
+        {
+            Id = $"ep_{seasonNumber}_{number}",
+            Title = name is null ? code : $"{code} · {name}",
+            Text = CleanText(episode.Info?.Plot, EpisodePlotLength),
+            Stamp = EpisodeDuration(episode.Info),
+            Separation = 0.18,
+            Alignment = "separation-text-right",
+            Concentration = "title",
+            Truncation = "text",
+            Action = $"video:{credential.BuildFrom(playbackBase, "series", episode.Id, extension)}",
+            PlayerLabel = name ?? code,
+            Properties = new Dictionary<string, string> { ["resume:key"] = "url" }
+        };
+    }
+
+    /// <summary>
+    /// Quebra de temporada: um rotulo grande no comeco de cada temporada (a
+    /// linha divisoria do desenho nao existe no MSX, entao a faixa do rotulo
+    /// faz esse papel).
+    /// </summary>
+    private static MsxContentItem SeasonBand(XtreamSeason season, int episodeCount, string url) => new()
+    {
+        Id = $"season_{season.SeasonNumber}",
+        Type = "teaser",
+        Title = SeasonTitle(season),
+        Color = "msx-glass",
+        Stamp = $"{episodeCount} episódios",
+        Action = $"content:{url}"
+    };
+
+    /// <summary>Episodios de uma temporada, ordenados pelo numero.</summary>
+    private static List<XtreamEpisode> EpisodesOf(XtreamSeriesInfo? info, int seasonNumber) =>
+        info?.Episodes is not null && info.Episodes.TryGetValue(seasonNumber.ToString(), out var episodes)
+            ? episodes.OrderBy(EpisodeNumber).ToList()
+            : [];
+
+    private static int EpisodeNumber(XtreamEpisode episode) =>
+        int.TryParse(episode.EpisodeNum, out var number) ? number : 0;
+
+    private static string SeasonTitle(XtreamSeason season) =>
+        string.IsNullOrWhiteSpace(season.Name)
+            ? $"Temporada {season.SeasonNumber}"
+            : season.Name!.Trim();
+
+    private static string SeriesTitle(XtreamSeries? series)
+    {
+        if (series is null)
+        {
+            return "Série";
+        }
+
+        return string.IsNullOrWhiteSpace(series.Title) ? series.Name : series.Title!;
+    }
+
+    /// <summary>
+    /// Duracao do episodio em minutos. O provedor manda "duration_secs" (o
+    /// mais confiavel) ou "duration" no formato "hh:mm:ss".
+    /// </summary>
+    private static string? EpisodeDuration(XtreamEpisodeInfo? info)
+    {
+        if (info is null)
+        {
+            return null;
+        }
+
+        if (info.DurationSecs is > 0)
+        {
+            return $"{Math.Round(info.DurationSecs.Value / 60.0)} min";
+        }
+
+        if (string.IsNullOrWhiteSpace(info.Duration))
+        {
+            return null;
+        }
+
+        var parts = info.Duration!.Split(':');
+
+        if (!parts.All(part => int.TryParse(part, out _)))
+        {
+            return null;
+        }
+
+        var seconds = parts.Aggregate(0, (total, part) => total * 60 + int.Parse(part));
+
+        return seconds > 0 ? $"{Math.Round(seconds / 60.0)} min" : null;
+    }
+
+    /// <summary>Limpa o texto que vem do provedor (entidades HTML e espacos).</summary>
+    private static string? CleanText(string? value, int maxLength = 0)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var text = System.Net.WebUtility.HtmlDecode(value).Trim();
+
+        if (text.Length == 0)
+        {
+            return null;
+        }
+
+        // A sinopse do episodio aparece em uma linha (o MSX corta o resto),
+        // entao nao vale a pena carregar o texto inteiro: ele pesa no JSON
+        // (uma serie com 800 episodios passa de 300 KB).
+        if (maxLength > 0 && text.Length > maxLength)
+        {
+            var cut = text[..maxLength];
+            var space = cut.LastIndexOf(' ');
+
+            if (space > maxLength / 2)
+            {
+                cut = cut[..space];
+            }
+
+            text = cut.TrimEnd() + "…";
+        }
+
+        return text;
+    }
+
+    /// <summary>URL da pagina de detalhe de uma serie.</summary>
+    private string SeriesInfoUrl(HttpContext context, XtreamCredential credential, string seriesId, string? categoryId) =>
+        ContentUrl(context, credential, $"series-info/{seriesId}.json") + CategoryQuery(categoryId);
+
+    /// <summary>URL da lista de temporadas.</summary>
+    private string SeriesSeasonsUrl(HttpContext context, XtreamCredential credential, string seriesId, string? categoryId) =>
+        ContentUrl(context, credential, $"series-seasons/{seriesId}.json") + CategoryQuery(categoryId);
+
+    /// <summary>URL da pagina de uma temporada.</summary>
+    private string SeriesSeasonUrl(HttpContext context, XtreamCredential credential, string seriesId, int seasonNumber, string? categoryId) =>
+        ContentUrl(context, credential, $"series-season/{seriesId}/{seasonNumber}.json") + CategoryQuery(categoryId);
+
+    private static string CategoryQuery(string? categoryId) =>
+        string.IsNullOrWhiteSpace(categoryId) ? string.Empty : $"?category_id={categoryId}";
 
     // ------------------------------------------------------------------
     // Preview (base64, autocontido, para o site msx.benzac.de)

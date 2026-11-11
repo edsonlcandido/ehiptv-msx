@@ -11,7 +11,7 @@ as telas de conteúdo — tudo gerado a partir do provedor, em tempo real.
 | 1 | **Início** | 3 cards: Canais ao vivo / Filmes e VOD / Séries e episódios |
 | 2 | **Canais** | Coluna nativa do app com **todas as categorias de TV** + lista de canais no estilo *Channel List* do MSX (logo, nome, **programa no ar**, horário e barra de progresso) |
 | 3 | **Filmes** | Coluna nativa do app com **todas as categorias de filmes** + grade de pôsteres verticais que **carrega mais ao rolar** (Paging Plugin) → reproduz (`/movie/….mp4`) |
-| 4 | **Séries** | Mesmo desenho da tela de Filmes → página de episódios (`S01E01 - …`) → reproduz (`/series/….mp4`) |
+| 4 | **Séries** | Mesmo desenho da tela de Filmes → **página de detalhe** (vitrine com capa + sinopse, episódios separados por temporada) → reproduz (`/series/….mp4`) |
 
 O menu lateral (coluna da esquerda) traz `Início`, `Canais`, `Filmes`, `Séries` e todas as
 categorias de cada seção. A tela de Canais abre o menu de TV (`/msx/menu/live.json`), que
@@ -103,6 +103,56 @@ O carregamento das capas é feito pelo **Paging Plugin** do MSX (o mesmo da seç
 - O limite de itens por categoria é `MaxPosterItems` (padrão 672). O `limit` de cada página
   é `PagingLimit` (padrão 16 — uma página cheia da grade comprimida).
 
+## Página de detalhe da série: vitrine + temporadas + episódios
+
+Clicar num cartaz de série abre a **vitrine**: a capa, a sinopse e os metadados da série
+(Xtream Codes) ficam num **cabeçalho fixo** (`header` do Content Root) e, embaixo, a lista
+de episódios **separada por temporada**.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ ┌────────┐  O Distrito 21 do Departamento de Polícia de Chicago é     │
+│ │ capa   │  composto pelos policiais uniformizados que lidam com…   │
+│ │ (3 col)│  Crime, Drama                              ┌────┐        │
+│ └────────┘                            CHICAGO P D : DISTRITO 21   │
+│ ┌──────────────┐ ┌──────────────┐                                  │
+│ │   Assistir   │ │  Temporadas  │                                  │
+│ └──────────────┘ └──────────────┘                                  │
+├──────────────────────────────────────────────────────────────────────┤
+│  TEMPORADA 1                                          15 EPISÓDIOS   │
+│  S01E01      Ap?s uma s?rie de brutais assassinatos…      43 MIN      │
+│  S01E02      Antonio acredita que um grupo colombiano…    43 MIN      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+- **A vitrine** (`header` do Content Root) tem 2 linhas de grade: capa à esquerda
+  (`imageWidth: 3`, `imageFiller: fit`), sinopse (`text`), ano/gênero (`titleHeader`), nota
+  (`badge`) e o título grande (`title`). O `header` exige `template` **e** `items` presentes
+  no Content Root.
+- **Botões**: `Assistir` (primeiro episódio da série) e `Temporadas` (a lista de temporadas).
+  São itens do tipo `button` na página de cabeçalho, posicionados à mão (`layout`).
+- **Quebra de temporada**: cada temporada começa com um item do tipo `teaser` (rótulo grande
+  na faixa da tela). O MSX **não desenha linha divisória fina** em lista de conteúdo — o
+  `offset` com altura negativa apaga o item e o `type: "space"` não escreve o rótulo — então a
+  faixa do rótulo é o que faz esse papel.
+- **Linha de episódio**: 1 linha da grade, com o **código à esquerda** (`S01E01`), a
+  **sinopse à direita** (`separation: 0.18` + `alignment: "separation-text-right"`) e a
+  **duração no canto** (`stamp`). O `truncation: "text"` corta a sinopse com reticências (sem
+  ele o texto vaza e fica cortado no meio da linha).
+- **Continuar de onde parou**: cada episódio leva `properties: { "resume:key": "url" }`, e o
+  MSX guarda a posição do playback localmente — ao abrir o episódio de novo, ele continua
+  do ponto em que parou.
+- **Metadados da série**: o provedor **ignora `series_id` no `get_series`** (devolve o
+  catálogo inteiro), então o cartaz leva o `category_id` da categoria de origem na URL
+  (`…/series-info/{id}.json?category_id=…`) e a série é procurada dentro da lista dessa
+  categoria. Sem o `category_id`, o app varre 6 categorias em paralelo até achar.
+- **Temporadas**: `seasons[]` do `get_series_info` traz nome, contagem de episódios, data e
+  **capa por temporada** (imagem do TMDB). A tela "Temporadas" lista todas com a capa e abre
+  os episódios de uma temporada (`…/series-season/{id}/{n}.json`). Temporada sem episódios no
+  provedor (o caso dos "Especiais", season 0) é omitida.
+- Limites de texto: sinopse da vitrine 200 caracteres e sinopse do episódio 220 (o MSX corta
+  o resto) — é o que mantém o JSON leve (uma série com 800 episódios fica em ~300 KB).
+
 ## A credencial vai no primeiro trecho da URL
 
 O usuário e a senha **sempre ficam no primeiro trecho do host** (prefixo) e valem para
@@ -151,7 +201,9 @@ e o `X-Forwarded-Proto` para montar as URLs públicas.
 | `GET /msx/menu/series.json` | Menu de séries (coluna nativa do app com todas as categorias) |
 | `GET /msx/service/series/{categoryId}.json?offset=…&limit=…` | Content service do Paging Plugin (séries) |
 | `GET /msx/content/series-categories.json` | Lista completa de categorias de séries |
-| `GET /msx/content/series-info/{seriesId}.json` | Episódios da série |
+| `GET /msx/content/series-info/{seriesId}.json?category_id=…` | Detalhe da série (vitrine + episódios por temporada) |
+| `GET /msx/content/series-seasons/{seriesId}.json?category_id=…` | Lista de temporadas da série |
+| `GET /msx/content/series-season/{seriesId}/{season}.json?category_id=…` | Episódios de uma temporada |
 | `GET /player_api.php` | API Xtream Codes padrão (veja abaixo) |
 | `GET /msx/diagnostico.json` | Diagnóstico do provedor (ver abaixo) |
 | `GET /msx/preview` | Preview no `msx.benzac.de` com o JSON em base64 |
@@ -413,3 +465,12 @@ docker run -p 8080:8080 -e Xtream__PublicBaseUrl=http://<usuario>-<senha>.localh
   ser maior que a largura do item.
 - O prefixo das categorias ("Canais | ", "Filmes | ", "Series | ") é removido na barra
   lateral e no `headline` da tela.
+- `truncation: "text"` corta o texto em **uma linha** com reticências (serve para a linha de
+  episódio). Na vitrine da série o texto **não** é truncado: a sinopse é limitada no servidor
+  para caber em 3 linhas, senão ela invade a linha do título.
+- `separation` + `alignment: "separation-text-right"` divide o item em duas áreas: o título
+  (código do episódio) fica à esquerda e o texto (sinopse) à direita.
+- O `tag` do MSX vira uma **fita diagonal** no canto (e o `stamp`, uma etiqueta no canto
+  inferior direito). Rótulos longos nesse canto não cabem.
+- Item do tipo `teaser` tem título maior; `type: "space"` não escreve rótulo nenhum e
+  `offset` com altura negativa **apaga** o item.

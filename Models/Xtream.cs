@@ -155,6 +155,18 @@ public sealed class XtreamSeason
 
     [JsonPropertyName("name")]
     public string? Name { get; set; }
+
+    [JsonPropertyName("air_date")]
+    public string? AirDate { get; set; }
+
+    [JsonPropertyName("overview")]
+    public string? Overview { get; set; }
+
+    [JsonPropertyName("cover")]
+    public string? Cover { get; set; }
+
+    [JsonPropertyName("cover_big")]
+    public string? CoverBig { get; set; }
 }
 
 public sealed class XtreamEpisode

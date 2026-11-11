@@ -363,11 +363,38 @@ app.MapGet("/msx/content/series-categories.json", async (HttpContext context, Cr
     return Results.Json(content, MsxJson.Options);
 });
 
+// Detalhe da serie: vitrine (capa + sinopse) no cabecalho fixo e a lista de
+// episodios separada por temporada. O "category_id" (a categoria de onde o
+// cartaz foi clicado) ajuda a achar os metadados da serie com o provedor.
 app.MapGet("/msx/content/series-info/{seriesId}.json", async (HttpContext context, string seriesId,
     CredentialResolver resolver, MsxContentFactory factory) =>
 {
     var credential = resolver.Resolve(context);
-    var content = await factory.BuildSeriesInfoAsync(context, credential, seriesId);
+    var content = await factory.BuildSeriesInfoAsync(
+        context, credential, seriesId, context.Request.Query["category_id"].FirstOrDefault());
+    return Results.Json(content, MsxJson.Options);
+});
+
+// Uma temporada especifica da serie.
+app.MapGet("/msx/content/series-season/{seriesId}/{season}.json", async (HttpContext context, string seriesId,
+    string season, CredentialResolver resolver, MsxContentFactory factory) =>
+{
+    var credential = resolver.Resolve(context);
+    var seasonNumber = int.TryParse(season, out var value) ? value : (int?)null;
+
+    var content = await factory.BuildSeriesInfoAsync(
+        context, credential, seriesId, context.Request.Query["category_id"].FirstOrDefault(), seasonNumber);
+
+    return Results.Json(content, MsxJson.Options);
+});
+
+// Lista de temporadas da serie (destino do botao "Temporadas" da vitrine).
+app.MapGet("/msx/content/series-seasons/{seriesId}.json", async (HttpContext context, string seriesId,
+    CredentialResolver resolver, MsxContentFactory factory) =>
+{
+    var credential = resolver.Resolve(context);
+    var content = await factory.BuildSeriesSeasonsAsync(
+        context, credential, seriesId, context.Request.Query["category_id"].FirstOrDefault());
     return Results.Json(content, MsxJson.Options);
 });
 
