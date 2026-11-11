@@ -182,6 +182,10 @@ de resultados em tela cheia, paginada** pelo Paging Plugin.
   `get_series`). Então o app baixa o catálogo completo **uma vez** e o guarda em cache
   (`SearchIndexCacheMinutes`, padrão 30 min) num índice enxuto (só os campos que a tela de
   resultado precisa), filtrando localmente.
+- **O provedor lista o mesmo stream em várias categorias**, então o catálogo vem com ids
+  repetidos ("Matrix" aparece duas vezes, por exemplo). O índice **elimina a repetição pelo
+  id**: o MSX recusa um item com id já registrado (`Item[0,15] ID is already registered`) e
+  deixaria um buraco vazio na grade.
 - **O casamento ignora acento e maiúscula**: "acao" acha "Ação", "SIMPSONS" acha "Simpsons".
   Quem **começa** com o texto procurado vem primeiro; depois, título mais curto.
   `SearchMaxResults` (padrão 300) corta o excesso.

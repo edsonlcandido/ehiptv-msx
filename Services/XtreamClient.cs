@@ -81,6 +81,11 @@ public sealed class XtreamClient
     ///
     /// O indice guarda so os campos que a tela de resultado precisa (o JSON
     /// bruto de 44 mil filmes ficaria pesado na memoria).
+    ///
+    /// O provedor lista o mesmo stream em varias categorias, entao o catalogo
+    /// vem com ids repetidos ("Matrix" aparece duas vezes, por exemplo). Isso
+    /// e eliminado pelo id: o MSX recusa item com id ja registrado e deixaria
+    /// um buraco vazio na grade.
     /// </summary>
     public async Task<List<XtreamSearchEntry>> GetSearchIndexAsync(XtreamCredential credential, string kind)
     {
@@ -128,6 +133,7 @@ public sealed class XtreamClient
                 SearchKey = NormalizeSearchText(stream.Name)
             })
             .Where(entry => entry.SearchKey.Length > 0)
+            .DistinctBy(entry => entry.Id)
             .ToList();
     }
 
@@ -155,6 +161,7 @@ public sealed class XtreamClient
                 };
             })
             .Where(entry => entry.SearchKey.Length > 0)
+            .DistinctBy(entry => entry.Id)
             .ToList();
     }
 
@@ -181,6 +188,7 @@ public sealed class XtreamClient
                 };
             })
             .Where(entry => entry.SearchKey.Length > 0)
+            .DistinctBy(entry => entry.Id)
             .ToList();
     }
 
